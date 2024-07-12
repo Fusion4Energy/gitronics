@@ -30,3 +30,8 @@ def test_generate_model(tmpdir):
         expected_text = infile.read()
 
     assert result_text == expected_text
+
+    # Check that metadata was generated
+    with open(tmpdir / "git_for_mcnp_metadata.json") as infile:
+        metadata = infile.read()
+    assert "version" in metadata
