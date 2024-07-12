@@ -1,0 +1,19 @@
+[project]
+name = "git_for_mcnp"
+license = {file = "LICENSE.txt"}
+dynamic = ["version"]
+authors = [
+  { name="Alvaro Cubi", email="cubiric@hotmail.com" },
+]
+description = "Automatically build an MCNP from a set of files."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: European Union Public Licence 1.2 (EUPL 1.2)",
+    "Operating System :: OS Independent",
+]
+dependencies = ["pandas"]
+
+[project.optional-dependencies]
+tests = ["pytest", "pytest-cov"]
