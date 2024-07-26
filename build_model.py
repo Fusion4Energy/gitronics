@@ -10,6 +10,7 @@ from git_for_mcnp import generate_model
 
 CONFIGURATION = Path(r"tests\example_structure\configuration.csv")
 PROJECT_PATH = Path(r"tests\example_structure")
+WRITE_PATH = Path(r"tests\example_structure")
 
 
 def _main():
@@ -17,7 +18,7 @@ def _main():
     generate_model(
         configuration_csv=CONFIGURATION,
         project_path=PROJECT_PATH,
-        write_path=PROJECT_PATH,
+        write_path=WRITE_PATH,
     )
 
 

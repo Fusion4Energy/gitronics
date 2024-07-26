@@ -1,0 +1,9 @@
+Relative folder path,File name,Suffix,Include,Comment
+models,filler_model_1,.mcnp,YES,
+models,filler_model_2,.mcnp,Optional,
+models\path_to_be_excluded,filler_model_3,.mcnp,NO,Not to be used in diagnostic assessments
+data_cards,fine_mesh,.tally,NO,
+data_cards,materials_bad_library,.mat,NO,
+data_cards,materials,.mat,YES,
+data_cards,ring_source,.source,NO,
+data_cards,volumetric_source,.source,YES,

@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple
 @dataclass
 class ParsedBlocks:
     """Contains all the sections of the MCNP model."""
+
     cells: Dict[int, str]
     surfaces: Dict[int, str]
     tallies: Dict[int, str]
@@ -20,42 +21,47 @@ class ParsedBlocks:
     transforms: Dict[int, str]
     source: str
 
+    @classmethod
+    def empty_instance(cls) -> "ParsedBlocks":
+        """Returns an empty instance of ParsedBlocks."""
+        return ParsedBlocks(
+            cells={}, surfaces={}, tallies={}, materials={}, transforms={}, source=""
+        )
+
 
 def read_files(files: List[Path]) -> ParsedBlocks:
     """Reads the files and returns the parsed blocks."""
-    parsed_data = {}
+    parsed_blocks = ParsedBlocks.empty_instance()
     for file in files:
         logging.info("Reading file: %s", file)
         suffix = file.suffix[1:]  # remove the dot like in ".mcnp"
 
-        if suffix == "mcnp":
-            cells_block, surfaces_block = _read_mcnp(file)
-            cells_dict = parsed_data.get("cells", {})
-            cells_dict[cells_block.first_id] = cells_block.text
-            parsed_data["cells"] = cells_dict
+        match suffix:
+            case "mcnp":
+                cells_block, surfaces_block = _read_mcnp(file)
+                parsed_blocks.cells[cells_block.first_id] = cells_block.text
+                parsed_blocks.surfaces[surfaces_block.first_id] = surfaces_block.text
 
-            surfs_dict = parsed_data.get("surfaces", {})
-            surfs_dict[surfaces_block.first_id] = surfaces_block.text
-            parsed_data["surfaces"] = surfs_dict
+            case "tally":
+                block = _read_first_block(file)
+                parsed_blocks.tallies[block.first_id] = block.text
 
-        elif suffix == "source":
-            source_block = _read_first_block(file)
-            parsed_data["source"] = source_block.text
+            case "mat":
+                block = _read_first_block(file)
+                parsed_blocks.materials[block.first_id] = block.text
 
-        else:
-            block = _read_first_block(file)
-            card_type_dict = parsed_data.get(suffix, {})
-            card_type_dict[block.first_id] = block.text
-            parsed_data[suffix] = card_type_dict
+            case "transform":
+                block = _read_first_block(file)
+                parsed_blocks.transforms[block.first_id] = block.text
 
-    return ParsedBlocks(
-        cells=parsed_data.get("cells", {}),
-        surfaces=parsed_data.get("surfaces", {}),
-        tallies=parsed_data.get("tally", {}),
-        materials=parsed_data.get("mat", {}),
-        transforms=parsed_data.get("transform", {}),
-        source=parsed_data.get("source", ""),
-    )
+            case "source":
+                source_block = _read_first_block(file)
+                parsed_blocks.source = source_block.text
+
+            case _:
+                raise ValueError(f"Unknown file suffix: {suffix}")
+
+    return parsed_blocks
 
 
 @dataclass
@@ -81,12 +87,12 @@ def _read_mcnp(file: Path) -> Tuple[_FirstIdAndText, _FirstIdAndText]:
 
     first_cell_id = re.search(r"^\d+", cells, flags=re.MULTILINE)
     if first_cell_id is None:
-        raise ValueError("Could not parse the first cell ID value...")
+        raise ValueError(f"Could not parse the first cell ID value in {file}...")
     first_cell_id = int(first_cell_id.group())
 
     first_surface_id = re.search(r"^\*?\d+", surfaces, flags=re.MULTILINE)
     if first_surface_id is None:
-        raise ValueError("Could not parse the first surface ID value...")
+        raise ValueError(f"Could not parse the first surface ID value in {file}...")
     first_surface_id = int(first_surface_id.group())
 
     return _FirstIdAndText(first_cell_id, cells), _FirstIdAndText(

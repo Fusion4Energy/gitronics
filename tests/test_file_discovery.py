@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from git_for_mcnp.file_discovery import get_included_paths
 
 CONFIGURATION_PATH = (
@@ -31,3 +32,11 @@ def test_get_included_paths():
     ]
     for file_path in not_expected_file_paths:
         assert file_path not in result_paths
+
+
+def test_wrong_configuration_include_value():
+    with pytest.raises(ValueError) as e:
+        get_included_paths(
+            PROJECT_PATH / "wrong_configuration_include_value.csv", PROJECT_PATH
+        )
+    assert "Include column should be either 'YES' or 'NO'" in str(e.value)

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from git_for_mcnp.file_readers import read_files
 
 PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
@@ -17,10 +18,27 @@ def test_read_files_mcnp():
     assert parsed_blocks.surfaces[10] == FILLER_MODEL_1_SURFACES
 
 
+def test_read_wrong_mcnp_files():
+    path_to_wrong_files = Path(PROJECT_PATH / "models" / "path_to_be_excluded")
+
+    with pytest.raises(ValueError) as e:
+        read_files([path_to_wrong_files / "only_cells_block.mcnp"])
+    assert "does not contain the two blocks" in str(e.value)
+
+    with pytest.raises(ValueError) as e:
+        read_files([path_to_wrong_files / "wrong_cells_block.mcnp"])
+    assert "Could not parse the first cell ID" in str(e.value)
+
+    with pytest.raises(ValueError) as e:
+        read_files([path_to_wrong_files / "wrong_surfaces_block.mcnp"])
+    assert "Could not parse the first surface ID" in str(e.value)
+
+
 def test_read_files_data_cards():
     parsed_blocks = read_files(
         [
             Path(PROJECT_PATH / "data_cards" / "materials.mat"),
+            Path(PROJECT_PATH / "data_cards" / "my_transform.transform"),
             Path(PROJECT_PATH / "data_cards" / "fine_mesh.tally"),
             Path(PROJECT_PATH / "data_cards" / "volumetric_source.source"),
         ]
@@ -28,6 +46,16 @@ def test_read_files_data_cards():
     assert parsed_blocks.materials[14] == MATERIALS_MAT
     assert parsed_blocks.tallies[24] == FINE_MESH_TALLY
     assert parsed_blocks.source == VOLUMETRIC_SOURCE
+
+
+def test_read_files_wrong_data_card():
+    with pytest.raises(ValueError):
+        read_files([Path(PROJECT_PATH / "data_cards" / "wrong_data_card.mat")])
+
+
+def test_read_file_wrong_suffix():
+    with pytest.raises(ValueError):
+        read_files([Path(PROJECT_PATH / "data_cards" / "wrong_suffix.wrong")])
 
 
 MAIN_INPUT_CELLS = """Title of the MCNP model
