@@ -68,6 +68,25 @@ def test_warning_if_multiple_sources(caplog):
     assert "Multiple source files found" in caplog.text
 
 
+def test_warning_if_no_materials_included(caplog):
+    read_files(
+        [
+            Path(PROJECT_PATH / "models" / "filler_model_1.mcnp"),
+            Path(PROJECT_PATH / "data_cards" / "fine_mesh.tally"),
+        ]
+    )
+    assert "No materials included in the model" in caplog.text
+
+
+def test_warning_if_no_cells_included(caplog):
+    read_files(
+        [
+            Path(PROJECT_PATH / "data_cards" / "materials.mat"),
+            Path(PROJECT_PATH / "data_cards" / "fine_mesh.tally"),
+        ]
+    )
+    assert "No cells included in the model" in caplog.text
+
 MAIN_INPUT_CELLS = """Title of the MCNP model
 C
 C

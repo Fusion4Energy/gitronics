@@ -82,6 +82,7 @@ def read_files(files: List[Path]) -> ParsedBlocks:
         logging.info("Reading file: %s", file)
         parsed_blocks._add_file(file)
 
+    _trigger_warnings(parsed_blocks)
     return parsed_blocks
 
 
@@ -131,3 +132,10 @@ def _read_first_block(file: Path) -> _FirstIdAndText:
     first_id = int(first_id.group(1))
 
     return _FirstIdAndText(first_id, text)
+
+
+def _trigger_warnings(parsed_blocks: ParsedBlocks) -> None:
+    if len(parsed_blocks.materials) == 0:
+        logging.warning("No materials included in the model!")
+    if len(parsed_blocks.cells) == 0:
+        logging.warning("No cells included in the model!")
