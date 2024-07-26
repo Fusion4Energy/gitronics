@@ -28,38 +28,59 @@ class ParsedBlocks:
             cells={}, surfaces={}, tallies={}, materials={}, transforms={}, source=""
         )
 
-
-def read_files(files: List[Path]) -> ParsedBlocks:
-    """Reads the files and returns the parsed blocks."""
-    parsed_blocks = ParsedBlocks.empty_instance()
-    for file in files:
-        logging.info("Reading file: %s", file)
+    def _add_file(self, file: Path) -> None:
         suffix = file.suffix[1:]  # remove the dot like in ".mcnp"
 
         match suffix:
             case "mcnp":
-                cells_block, surfaces_block = _read_mcnp(file)
-                parsed_blocks.cells[cells_block.first_id] = cells_block.text
-                parsed_blocks.surfaces[surfaces_block.first_id] = surfaces_block.text
+                self._add_mcnp_file(file)
 
             case "tally":
-                block = _read_first_block(file)
-                parsed_blocks.tallies[block.first_id] = block.text
+                self._add_tally_file(file)
 
             case "mat":
-                block = _read_first_block(file)
-                parsed_blocks.materials[block.first_id] = block.text
+                self._add_material_file(file)
 
             case "transform":
-                block = _read_first_block(file)
-                parsed_blocks.transforms[block.first_id] = block.text
+                self._add_transform_file(file)
 
             case "source":
-                source_block = _read_first_block(file)
-                parsed_blocks.source = source_block.text
+                self._add_source_file(file)
 
             case _:
                 raise ValueError(f"Unknown file suffix: {suffix}")
+
+    def _add_mcnp_file(self, file: Path) -> None:
+        cells_block, surfaces_block = _read_mcnp(file)
+        self.cells[cells_block.first_id] = cells_block.text
+        self.surfaces[surfaces_block.first_id] = surfaces_block.text
+
+    def _add_tally_file(self, file: Path) -> None:
+        block = _read_first_block(file)
+        self.tallies[block.first_id] = block.text
+
+    def _add_material_file(self, file: Path) -> None:
+        block = _read_first_block(file)
+        self.materials[block.first_id] = block.text
+
+    def _add_transform_file(self, file: Path) -> None:
+        block = _read_first_block(file)
+        self.transforms[block.first_id] = block.text
+
+    def _add_source_file(self, file: Path) -> None:
+        if len(self.source) > 0:
+            logging.warning("Multiple source files found! Using %s", file)
+        source_block = _read_first_block(file)
+        self.source = source_block.text
+
+
+def read_files(files: List[Path]) -> ParsedBlocks:
+    """Reads the files and returns the parsed blocks."""
+    parsed_blocks = ParsedBlocks.empty_instance()
+
+    for file in files:
+        logging.info("Reading file: %s", file)
+        parsed_blocks._add_file(file)
 
     return parsed_blocks
 

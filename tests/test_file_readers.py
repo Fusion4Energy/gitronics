@@ -58,6 +58,16 @@ def test_read_file_wrong_suffix():
         read_files([Path(PROJECT_PATH / "data_cards" / "wrong_suffix.wrong")])
 
 
+def test_warning_if_multiple_sources(caplog):
+    read_files(
+        [
+            Path(PROJECT_PATH / "data_cards" / "volumetric_source.source"),
+            Path(PROJECT_PATH / "data_cards" / "ring_source.source"),
+        ]
+    )
+    assert "Multiple source files found" in caplog.text
+
+
 MAIN_INPUT_CELLS = """Title of the MCNP model
 C
 C
