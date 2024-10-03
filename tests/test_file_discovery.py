@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from git_for_mcnp.file_discovery import get_included_paths
 
 CONFIGURATION_PATH = (

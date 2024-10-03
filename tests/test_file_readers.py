@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from git_for_mcnp.file_readers import read_files
 
 PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
@@ -86,6 +87,7 @@ def test_warning_if_no_cells_included(caplog):
         ]
     )
     assert "No cells included in the model" in caplog.text
+
 
 MAIN_INPUT_CELLS = """Title of the MCNP model
 C

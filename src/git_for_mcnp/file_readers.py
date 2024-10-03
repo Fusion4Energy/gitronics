@@ -28,7 +28,8 @@ class ParsedBlocks:
             cells={}, surfaces={}, tallies={}, materials={}, transforms={}, source=""
         )
 
-    def _add_file(self, file: Path) -> None:
+    def add_file(self, file: Path) -> None:
+        """Adds the file if the suffix is recognized."""
         suffix = file.suffix[1:]  # remove the dot like in ".mcnp"
 
         match suffix:
@@ -80,7 +81,7 @@ def read_files(files: List[Path]) -> ParsedBlocks:
 
     for file in files:
         logging.info("Reading file: %s", file)
-        parsed_blocks._add_file(file)
+        parsed_blocks.add_file(file)
 
     _trigger_warnings(parsed_blocks)
     return parsed_blocks
