@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from git_for_mcnp.file_discovery import get_included_paths
+from gitronics.file_discovery import get_included_paths
 
 CONFIGURATION_PATH = (
     Path(__file__).resolve().parents[1]

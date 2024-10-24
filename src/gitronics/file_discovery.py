@@ -1,7 +1,8 @@
 """
-These functions take care of reading the configuration file and returning the paths of 
+These functions take care of reading the configuration file and returning the paths of
 the files that should be included in the model.
 """
+
 import logging
 from enum import StrEnum
 from pathlib import Path

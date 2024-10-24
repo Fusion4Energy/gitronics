@@ -2,11 +2,12 @@
 These functions are used to compose the MCNP model from the blocks of cards that were
 read and parsed previously.
 """
+
 import logging
 from io import StringIO
 from typing import Dict
 
-from git_for_mcnp.file_readers import ParsedBlocks
+from gitronics.file_readers import ParsedBlocks
 
 
 def compose_model(parsed_data: ParsedBlocks) -> str:

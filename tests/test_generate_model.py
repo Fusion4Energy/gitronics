@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from git_for_mcnp.generate_model import generate_model
+from gitronics.generate_model import generate_model
 
 CONFIGURATION_PATH = (
     Path(__file__).resolve().parents[1]
@@ -32,6 +32,6 @@ def test_generate_model(tmpdir):
     assert result_text == expected_text
 
     # Check that metadata was generated
-    with open(tmpdir / "git_for_mcnp_metadata.json") as infile:
+    with open(tmpdir / "gitronics_metadata.json") as infile:
         metadata = infile.read()
     assert "version" in metadata

@@ -6,7 +6,7 @@ Adapt the CONFIGURATION and PROJECT_PATH variables to the correct paths.
 import logging
 from pathlib import Path
 
-from git_for_mcnp import generate_model
+from gitronics import generate_model
 
 CONFIGURATION = Path(r"tests\example_structure\configuration.csv")
 PROJECT_PATH = Path(r"tests\example_structure")

@@ -1,8 +1,8 @@
 # ruff: noqa: E501
 from pathlib import Path
 
-from git_for_mcnp.compose_model import compose_model
-from git_for_mcnp.file_readers import ParsedBlocks
+from gitronics.compose_model import compose_model
+from gitronics.file_readers import ParsedBlocks
 
 PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
 

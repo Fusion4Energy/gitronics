@@ -1,8 +1,9 @@
 """
 These functions read and parse the individual files that will make up the composed MCNP
-model. The result is an instance of ParsedBlocks which holds all the sections of the 
+model. The result is an instance of ParsedBlocks which holds all the sections of the
 final file.
 """
+
 import logging
 import re
 from dataclasses import dataclass

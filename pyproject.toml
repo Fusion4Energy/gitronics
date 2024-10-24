@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 write_to = "src/_version.py"
 
 [project]
-name = "git_for_mcnp"
+name = "gitronics"
 license = {file = "LICENSE.txt"}
 dynamic = ["version"]
 authors = [
