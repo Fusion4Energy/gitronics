@@ -16,11 +16,20 @@ def generate_model(
     configuration_csv: Path,
     project_path: Path,
     write_path: Path,
-):
-    """
-    Generates the MCNP model based on the configuration file and the project path and
+) -> None:
+    """Generates the MCNP model based on the configuration file and the project path and
     writes it in a new file called "assembled.i" in the write_path. Also writes metadata
     in a file called "gitronics_metadata.json" with the version of the module.
+
+    Parameters
+    ----------
+    configuration_csv : Path
+        Information about which files should be included in the model and their paths.
+    project_path : Path
+        Root path of the folder with the files, the paths in the configuration file are
+        relative to this path.
+    write_path : Path
+        Path where the assembled MCNP model and metadata will be written.
     """
     files = get_included_paths(configuration_csv, project_path)
     parsed_blocks = read_files(files)
