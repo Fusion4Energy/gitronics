@@ -42,7 +42,7 @@ def get_included_paths(configuration_csv: Path, project_path: Path) -> List[Path
     return included_paths
 
 
-def _file_is_included(row: pd.Series[Any]) -> bool:
+def _file_is_included(row: "pd.Series[Any]") -> bool:
     include_value = row[ConfigColumns.INCLUDE].upper()
     if include_value == "NO":
         return False
