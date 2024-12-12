@@ -39,7 +39,7 @@ def generate_model(
     _dump_metadata(write_path)
 
 
-def _dump_metadata(write_path: Path):
+def _dump_metadata(write_path: Path) -> None:
     with open(write_path / "gitronics_metadata.json", "w", encoding="utf-8") as infile:
         metadata = {
             "gitronics_version": version("gitronics"),

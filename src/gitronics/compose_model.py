@@ -5,7 +5,7 @@ read and parsed previously.
 
 import logging
 from io import StringIO
-from typing import Dict
+from typing import Dict, TextIO
 
 from gitronics.file_readers import ParsedBlocks
 
@@ -36,7 +36,7 @@ def compose_model(parsed_data: ParsedBlocks) -> str:
     return model.getvalue()
 
 
-def _write_cards_on_model(card_dictionary: Dict[int, str], model):
+def _write_cards_on_model(card_dictionary: Dict[int, str], model: TextIO) -> None:
     card_ids = sorted(card_dictionary.keys())
     for card_id in card_ids:
         model.write(card_dictionary[card_id])

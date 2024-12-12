@@ -109,15 +109,15 @@ def _read_mcnp(file: Path) -> Tuple[_FirstIdAndText, _FirstIdAndText]:
 
     cells, surfaces = blocks[:2]
 
-    first_cell_id = re.search(r"^\d+", cells, flags=re.MULTILINE)
-    if first_cell_id is None:
+    match_first_cell_id = re.search(r"^\d+", cells, flags=re.MULTILINE)
+    if not match_first_cell_id:
         raise ValueError(f"Could not parse the first cell ID value in {file}...")
-    first_cell_id = int(first_cell_id.group())
+    first_cell_id = int(match_first_cell_id.group())
 
-    first_surface_id = re.search(r"^\*?\d+", surfaces, flags=re.MULTILINE)
-    if first_surface_id is None:
+    match_first_surface_id = re.search(r"^\*?\d+", surfaces, flags=re.MULTILINE)
+    if not match_first_surface_id:
         raise ValueError(f"Could not parse the first surface ID value in {file}...")
-    first_surface_id = int(first_surface_id.group())
+    first_surface_id = int(match_first_surface_id.group())
 
     return _FirstIdAndText(first_cell_id, cells), _FirstIdAndText(
         first_surface_id, surfaces
@@ -128,10 +128,10 @@ def _read_first_block(file: Path) -> _FirstIdAndText:
     with open(file, encoding="utf-8") as infile:
         text = BLANK_LINE.split(infile.read())[0]
 
-    first_id = re.search(r"^\*?[a-zA-Z]*(\d+)", text, flags=re.MULTILINE)
-    if first_id is None:
+    match_first_id = re.search(r"^\*?[a-zA-Z]*(\d+)", text, flags=re.MULTILINE)
+    if not match_first_id:
         raise ValueError(f"Could not parse the first ID value in file {file}...")
-    first_id = int(first_id.group(1))
+    first_id = int(match_first_id.group(1))
 
     return _FirstIdAndText(first_id, text)
 
