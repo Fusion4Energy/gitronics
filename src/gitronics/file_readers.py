@@ -8,18 +8,18 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 
 @dataclass
 class ParsedBlocks:
     """Contains all the sections of the MCNP model."""
 
-    cells: Dict[int, str]
-    surfaces: Dict[int, str]
-    tallies: Dict[int, str]
-    materials: Dict[int, str]
-    transforms: Dict[int, str]
+    cells: dict[int, str]
+    surfaces: dict[int, str]
+    tallies: dict[int, str]
+    materials: dict[int, str]
+    transforms: dict[int, str]
     source: str
 
     @classmethod
@@ -70,13 +70,10 @@ class ParsedBlocks:
         self.transforms[block.first_id] = block.text
 
     def _add_source_file(self, file: Path) -> None:
-        if len(self.source) > 0:
-            logging.warning("Multiple source files found! Using %s", file)
-        source_block = _read_first_block(file)
-        self.source = source_block.text
+        self.source = _read_first_block(file).text
 
 
-def read_files(files: List[Path]) -> ParsedBlocks:
+def read_files(files: list[Path]) -> ParsedBlocks:
     """Reads the files and returns the parsed blocks."""
     parsed_blocks = ParsedBlocks.empty_instance()
 
@@ -84,7 +81,6 @@ def read_files(files: List[Path]) -> ParsedBlocks:
         logging.info("Reading file: %s", file)
         parsed_blocks.add_file(file)
 
-    _trigger_warnings(parsed_blocks)
     return parsed_blocks
 
 
@@ -134,10 +130,3 @@ def _read_first_block(file: Path) -> _FirstIdAndText:
     first_id = int(match_first_id.group(1))
 
     return _FirstIdAndText(first_id, text)
-
-
-def _trigger_warnings(parsed_blocks: ParsedBlocks) -> None:
-    if len(parsed_blocks.materials) == 0:
-        logging.warning("No materials included in the model!")
-    if len(parsed_blocks.cells) == 0:
-        logging.warning("No cells included in the model!")

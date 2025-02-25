@@ -8,7 +8,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from gitronics.compose_model import compose_model
-from gitronics.file_discovery import get_included_paths
+# from gitronics.model_manager import get_included_paths
 from gitronics.file_readers import read_files
 
 
@@ -31,12 +31,12 @@ def generate_model(
     write_path : Path
         Path where the assembled MCNP model and metadata will be written.
     """
-    files = get_included_paths(configuration_csv, project_path)
-    parsed_blocks = read_files(files)
-    text = compose_model(parsed_blocks)
-    with open(write_path / "assembled.i", "w", encoding="utf-8") as infile:
-        infile.write(text)
-    _dump_metadata(write_path)
+    # files = get_included_paths(configuration_csv, project_path)
+    # parsed_blocks = read_files(files)
+    # text = compose_model(parsed_blocks)
+    # with open(write_path / "assembled.i", "w", encoding="utf-8") as infile:
+    #     infile.write(text)
+    # _dump_metadata(write_path)
 
 
 def _dump_metadata(write_path: Path) -> None:
