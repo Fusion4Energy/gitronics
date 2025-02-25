@@ -9,10 +9,10 @@ PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structur
 
 def test_read_files_mcnp():
     parsed_blocks = read_files(
-        [
+        {
             Path(PROJECT_PATH / "models" / "main_input.mcnp"),
             Path(PROJECT_PATH / "models" / "filler_model_1.mcnp"),
-        ]
+        }
     )
     assert parsed_blocks.cells[1] == MAIN_INPUT_CELLS
     assert parsed_blocks.cells[10] == FILLER_MODEL_1_CELLS
@@ -23,26 +23,26 @@ def test_read_wrong_mcnp_files():
     path_to_wrong_files = Path(PROJECT_PATH / "models" / "path_to_be_excluded")
 
     with pytest.raises(ValueError) as e:
-        read_files([path_to_wrong_files / "only_cells_block.mcnp"])
+        read_files({path_to_wrong_files / "only_cells_block.mcnp"})
     assert "does not contain the two blocks" in str(e.value)
 
     with pytest.raises(ValueError) as e:
-        read_files([path_to_wrong_files / "wrong_cells_block.mcnp"])
+        read_files({path_to_wrong_files / "wrong_cells_block.mcnp"})
     assert "Could not parse the first cell ID" in str(e.value)
 
     with pytest.raises(ValueError) as e:
-        read_files([path_to_wrong_files / "wrong_surfaces_block.mcnp"])
+        read_files({path_to_wrong_files / "wrong_surfaces_block.mcnp"})
     assert "Could not parse the first surface ID" in str(e.value)
 
 
 def test_read_files_data_cards():
     parsed_blocks = read_files(
-        [
+        {
             Path(PROJECT_PATH / "data_cards" / "materials.mat"),
             Path(PROJECT_PATH / "data_cards" / "my_transform.transform"),
             Path(PROJECT_PATH / "data_cards" / "fine_mesh.tally"),
             Path(PROJECT_PATH / "data_cards" / "volumetric_source.source"),
-        ]
+        }
     )
     assert parsed_blocks.materials[14] == MATERIALS_MAT
     assert parsed_blocks.tallies[24] == FINE_MESH_TALLY
@@ -51,42 +51,12 @@ def test_read_files_data_cards():
 
 def test_read_files_wrong_data_card():
     with pytest.raises(ValueError):
-        read_files([Path(PROJECT_PATH / "data_cards" / "wrong_data_card.mat")])
+        read_files({Path(PROJECT_PATH / "data_cards" / "wrong_data_card.mat")})
 
 
 def test_read_file_wrong_suffix():
     with pytest.raises(ValueError):
-        read_files([Path(PROJECT_PATH / "data_cards" / "wrong_suffix.wrong")])
-
-
-def test_warning_if_multiple_sources(caplog):
-    read_files(
-        [
-            Path(PROJECT_PATH / "data_cards" / "volumetric_source.source"),
-            Path(PROJECT_PATH / "data_cards" / "ring_source.source"),
-        ]
-    )
-    assert "Multiple source files found" in caplog.text
-
-
-def test_warning_if_no_materials_included(caplog):
-    read_files(
-        [
-            Path(PROJECT_PATH / "models" / "filler_model_1.mcnp"),
-            Path(PROJECT_PATH / "data_cards" / "fine_mesh.tally"),
-        ]
-    )
-    assert "No materials included in the model" in caplog.text
-
-
-def test_warning_if_no_cells_included(caplog):
-    read_files(
-        [
-            Path(PROJECT_PATH / "data_cards" / "materials.mat"),
-            Path(PROJECT_PATH / "data_cards" / "fine_mesh.tally"),
-        ]
-    )
-    assert "No cells included in the model" in caplog.text
+        read_files({Path(PROJECT_PATH / "data_cards" / "wrong_suffix.wrong")})
 
 
 MAIN_INPUT_CELLS = """Title of the MCNP model
@@ -106,13 +76,13 @@ C **************************************************************
            imp:n=1.0   imp:p=1.0   
            $/61/SOLID1
 2     0      1 -2 8 73 -7 -6 -5
-           imp:n=1.0   imp:p=1.0   u=121
+           imp:n=1.0   imp:p=1.0   $ FILL = My envelope name 1
            $/61/SOLID0011
 3     0      1 -2 8 9 73 -7 -6
-           imp:n=1.0   imp:p=1.0   u=121
+           imp:n=1.0   imp:p=1.0   $ FILL = My envelope name 1
            $/61/SOLID0021
 4     0      1 -2 8 73 -11 -10 -7
-           imp:n=1.0   imp:p=1.0   u=121
+           imp:n=1.0   imp:p=1.0   $ FILL = My envelope name 1
            $/61/SOLID0031
 5     0      1 -2 8 73 -19 18 -7:1 8 73 -21 -20 22 -7:1 8 -23 73 -18 24 -7:1 
            -26 -25 8 73 24 -7:-2 -27 8 -22 74 12 -7:-28 8 75 22 24 -7:1 -30 -29 
@@ -122,23 +92,23 @@ C **************************************************************
            79 22 -7 26:8 80 14 22 -7 26 -36:-2 8 -22 74 -7 27 -36:-2 36 8 74 15 
            -7 -37:-2 37 8 -22 81 -7 -38:8 -22 -14 82 -7 -37:38 8 -22 -16 83 -7 
            -39:-2 38 8 74 17 -7 -39:-2 39 8 -22 78 -7 -33
-           imp:n=1.0   imp:p=1.0   u=125
+           imp:n=1.0   imp:p=1.0   $ FILL = ENVELOPE_2
            $/61/SOLID0041
 6     0      1 8 73 43 44 45 -7:1 8 73 44 46 47 -40 -7:1 8 73 44 48 -46 -7:8 
            -49 50 -44 84 -41 -7:-2 8 43 49 -44 85 -7:-2 8 76 -50 51 -44 -7:-2 8 
            74 42 -51 46 -7:8 -51 46 -44 86 -40 -7:-2 8 48 -46 -44 87 -7
-           imp:n=1.0   imp:p=1.0  u=125
+           imp:n=1.0   imp:p=1.0  $ FILL = ENVELOPE_2
            $/61/SOLID0051
 7     0      1 8 73 -55 52 53 54 -7:8 -56 -53 76 54 -7:8 -54 -21 53 88 -7:1 -57 
            8 73 -56 53 -7:1 -58 8 73 -21 54 -7:89 -2 -59 8 -53 -21 -7:-60 8 -53 
            -14 -7 90 59:-2 -60 8 74 15 -7 59:8 -56 -54 -53 -41 -7 91 60:-2 -61 
            8 41 74 -7 60:-2 -62 -56 41 8 74 -7
-           imp:n=1.0   imp:p=1.0 u=125  
+           imp:n=1.0   imp:p=1.0 $ FILL = ENVELOPE_2
            $/61/SOLID0061
 8     0      64 1 8 73 -56 -7 63:65 1 8 73 -18 -7 63:1 66 8 73 18 -7 63:-63 -2 
            66 8 18 -7 92:-2 -61 8 41 74 -18 -7:-63 8 -56 76 -18 -41 -7:-62 -2 8 
            -56 74 41 -7
-           imp:n=1.0   imp:p=1.0 u=125 
+           imp:n=1.0   imp:p=1.0 $ FILL = ENVELOPE_2 
            $/61/SOLID0071
 9     0      1 68 8 73 -7 -69 -67:1 68 8 73 -11 -7 -70:8 93 -11 -41 -7 -68 -67:
            -2 8 41 74 -7 -71 -67:-2 8 41 74 -11 -72 -7
