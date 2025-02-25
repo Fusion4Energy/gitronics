@@ -61,16 +61,27 @@ def fill_envelope_cards(
     """
     envelope_structure_id = _get_envelope_structure_first_cell_id(model_manager)
     text = parsed_blocks.cells[envelope_structure_id]
+
     for envelope_name, envelope_data in model_manager.configuration.envelopes.items():
+        # If the envelope is left empty in the configuration do not fill
+        if not envelope_data:
+            continue
+
+        # Search for the placeholder in the envelope structure
         placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}"
         if not re.search(placeholder, text):
             raise ValueError(f"Could not find {placeholder} in envelope structure.")
 
+        # Create the fill card
         universe_id = model_manager.get_universe_id(envelope_name)
         fill_card = f" FILL = {universe_id}"
         if envelope_data.transform:
             fill_card += f" {envelope_data.transform}"
+
+        # Modify the text
         text = re.sub(placeholder, fill_card, text)
+
+    # Update the ParsedBlocks with the new text for the envelope structure
     parsed_blocks.cells[envelope_structure_id] = text
 
 
