@@ -1,23 +1,28 @@
 """
-This script is used to generate the MCNP model. 
+This script is used to generate the MCNP model.
 
-Adapt the CONFIGURATION and PROJECT_PATH variables to the correct paths.
+Adapt the PATHS constants to the correct paths.
 """
+
 import logging
 from pathlib import Path
 
 from gitronics import generate_model
 
-CONFIGURATION = Path(r"tests\example_structure\configuration.csv")
-PROJECT_PATH = Path(r"tests\example_structure")
-WRITE_PATH = Path(r"tests\example_structure")
+ROOT_FOLDER_PATH = Path(r"tests/example_structure")
+CONFIGURATION_FILE_PATH = Path(
+    r"tests/example_structure/configurations/configuration_1.yml"
+)
+PROJECT_SUMMARY_PATH = Path(r"tests/example_structure/project_summary.csv")
+WRITE_PATH = Path(r"tests/example_structure/.assembled")
 
 
 def _main():
     logging.basicConfig(level=logging.INFO)
     generate_model(
-        configuration_csv=CONFIGURATION,
-        project_path=PROJECT_PATH,
+        root_folder_path=ROOT_FOLDER_PATH,
+        configuration_file_path=CONFIGURATION_FILE_PATH,
+        project_summary_path=PROJECT_SUMMARY_PATH,
         write_path=WRITE_PATH,
     )
 

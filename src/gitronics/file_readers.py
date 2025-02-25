@@ -73,7 +73,7 @@ class ParsedBlocks:
         self.source = _read_first_block(file).text
 
 
-def read_files(files: set[Path]) -> ParsedBlocks:
+def read_files(files: list[Path]) -> ParsedBlocks:
     """Reads the files and returns the parsed blocks."""
     parsed_blocks = ParsedBlocks.empty_instance()
 

@@ -39,8 +39,8 @@ class ModelManager:
         self.project_summary = self._read_project_summary(project_summary_path)
         self.configuration = self._read_configuration_file(configuration_file_path)
 
-    def get_included_paths(self) -> set[Path]:
-        paths = set()
+    def get_included_paths(self) -> list[Path]:
+        paths = []
         self._include_envelope_structure(paths)
         self._include_envelopes(paths)
         self._include_source(paths)
@@ -60,62 +60,70 @@ class ModelManager:
                     return int(universe_match.group(1))
         raise ValueError(f"Universe ID not found in filler model {filler_model_path}")
 
-    def _include_envelope_structure(self, paths: set[Path]) -> None:
+    def _include_envelope_structure(self, paths: list[Path]) -> None:
         try:
             path = self.project_summary[self.configuration.envelope_structure]
-            paths.add(path)
+            paths.append(path)
         except KeyError as e:
             raise KeyError(
                 f"Envelope structure {self.configuration.envelope_structure} not found"
                 " in project summary."
             ) from e
 
-    def _include_envelopes(self, paths: set[Path]) -> None:
+    def _include_envelopes(self, paths: list[Path]) -> None:
         for envelope in self.configuration.envelopes.values():
             if not envelope or not envelope.filler:
                 continue
             try:
                 path = self.project_summary[envelope.filler]
-                paths.add(path)
+                if path in paths:
+                    continue
+                paths.append(path)
             except KeyError as e:
                 raise KeyError(
                     f"Filler {envelope.filler} not found in project summary."
                 ) from e
 
-    def _include_source(self, paths: set[Path]) -> None:
+    def _include_source(self, paths: list[Path]) -> None:
         try:
             path = self.project_summary[self.configuration.source]
-            paths.add(path)
+            paths.append(path)
         except KeyError as e:
             raise KeyError(
                 f"Source file {self.configuration.source} not found in project summary."
             ) from e
 
-    def _include_tallies(self, paths: set[Path]) -> None:
+    def _include_tallies(self, paths: list[Path]) -> None:
         for tally in self.configuration.tallies:
             try:
                 path = self.project_summary[tally]
-                paths.add(path)
+                if path in paths:
+                    continue
+                paths.append(path)
             except KeyError as e:
                 raise KeyError(
                     f"Tally file {tally} not found in project summary."
                 ) from e
 
-    def _include_materials(self, paths: set[Path]) -> None:
+    def _include_materials(self, paths: list[Path]) -> None:
         for material in self.configuration.materials:
             try:
                 path = self.project_summary[material]
-                paths.add(path)
+                if path in paths:
+                    continue
+                paths.append(path)
             except KeyError as e:
                 raise KeyError(
                     f"Material file {material} not found in project summary."
                 ) from e
 
-    def _include_transforms(self, paths: set[Path]) -> None:
+    def _include_transforms(self, paths: list[Path]) -> None:
         for transform in self.configuration.transforms:
             try:
                 path = self.project_summary[transform]
-                paths.add(path)
+                if path in paths:
+                    continue
+                paths.append(path)
             except KeyError as e:
                 raise KeyError(
                     f"Transform file {transform} not found in project summary."
