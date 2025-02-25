@@ -9,7 +9,7 @@ CONFIGURATION_PATH = (
     Path(__file__).resolve().parents[1]
     / "tests"
     / "example_structure"
-    / "configuration_1.yml"
+    / "configurations/configuration_1.yml"
 )
 PROJECT_SUMMARY_PATH = (
     Path(__file__).resolve().parents[1]
@@ -70,7 +70,7 @@ def test_override_configuration_small():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_override_small.yml"
+        / "configurations/configuration_override_small.yml"
     )
     model_manager = ModelManager(
         PROJECT_PATH, configuration_override_path, PROJECT_SUMMARY_PATH
@@ -91,7 +91,7 @@ def test_override_configuration_not_found():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_override_not_found.yml"
+        / "configurations/configuration_override_not_found.yml"
     )
 
     with pytest.raises(KeyError):
@@ -103,7 +103,7 @@ def test_envelope_structure_not_found():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_envelope_structure_not_found.yml"
+        / "configurations/configuration_envelope_structure_not_found.yml"
     )
     model_manager = ModelManager(
         PROJECT_PATH, configuration_override_path, PROJECT_SUMMARY_PATH
@@ -117,7 +117,7 @@ def test_envelope_filler_not_found():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_envelope_filler_not_found.yml"
+        / "configurations/configuration_envelope_filler_not_found.yml"
     )
     model_manager = ModelManager(
         PROJECT_PATH, configuration_override_path, PROJECT_SUMMARY_PATH
@@ -131,7 +131,7 @@ def test_source_not_found():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_source_not_found.yml"
+        / "configurations/configuration_source_not_found.yml"
     )
     model_manager = ModelManager(
         PROJECT_PATH, configuration_override_path, PROJECT_SUMMARY_PATH
@@ -145,7 +145,7 @@ def test_tally_not_found():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_tally_not_found.yml"
+        / "configurations/configuration_tally_not_found.yml"
     )
     model_manager = ModelManager(
         PROJECT_PATH, configuration_override_path, PROJECT_SUMMARY_PATH
@@ -159,7 +159,7 @@ def test_material_not_found():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_material_not_found.yml"
+        / "configurations/configuration_material_not_found.yml"
     )
     model_manager = ModelManager(
         PROJECT_PATH, configuration_override_path, PROJECT_SUMMARY_PATH
@@ -173,7 +173,7 @@ def test_transform_not_found():
         Path(__file__).resolve().parents[1]
         / "tests"
         / "example_structure"
-        / "configuration_transform_not_found.yml"
+        / "configurations/configuration_transform_not_found.yml"
     )
     model_manager = ModelManager(
         PROJECT_PATH, configuration_override_path, PROJECT_SUMMARY_PATH
