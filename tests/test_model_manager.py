@@ -180,3 +180,23 @@ def test_transform_not_found():
     )
     with pytest.raises(KeyError):
         model_manager.get_included_paths()
+
+
+def test_get_universe_id():
+    model_manager = ModelManager(PROJECT_PATH, CONFIGURATION_PATH, PROJECT_SUMMARY_PATH)
+    model_1_id = 121
+    model_2_id = 125
+    assert model_manager.get_universe_id("My envelope name 1") == model_1_id
+    assert model_manager.get_universe_id("Envelope_2") == model_2_id
+
+
+def test_get_universe_id_not_found():
+    configuration_path = (
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "example_structure"
+        / "configurations/configuration_model_3.yml"
+    )
+    model_manager = ModelManager(PROJECT_PATH, configuration_path, PROJECT_SUMMARY_PATH)
+    with pytest.raises(ValueError):
+        model_manager.get_universe_id("My envelope name 1")

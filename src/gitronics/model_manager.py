@@ -4,6 +4,7 @@ the files that should be included in the model.
 """
 
 import csv
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +48,17 @@ class ModelManager:
         self._include_materials(paths)
         self._include_transforms(paths)
         return paths
+
+    def get_universe_id(self, envelope_name: str) -> int:
+        filler_model_path = self.project_summary[
+            self.configuration.envelopes[envelope_name].filler
+        ]
+        with open(filler_model_path, encoding="utf-8") as infile:
+            for line in infile:
+                universe_match = re.search(r"[uU]\s*=\s*(\d+)", line)
+                if universe_match:
+                    return int(universe_match.group(1))
+        raise ValueError(f"Universe ID not found in filler model {filler_model_path}")
 
     def _include_envelope_structure(self, paths: set[Path]) -> None:
         try:
