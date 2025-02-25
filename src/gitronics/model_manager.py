@@ -7,21 +7,22 @@ import csv
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 
 @dataclass
-class EnvelopeData:
+class _EnvelopeData:
     filler: str | None
     transform: str | None
 
 
 @dataclass
-class Configuration:
+class _Configuration:
     overrides: str | None
     envelope_structure: str | None
-    envelopes: dict[str, EnvelopeData]
+    envelopes: dict[str, _EnvelopeData]
     source: str | None
     tallies: list[str]
     materials: list[str]
@@ -29,6 +30,10 @@ class Configuration:
 
 
 class ModelManager:
+    """Manages the configuration and project summary files and their relevant
+    information.
+    """
+
     def __init__(
         self,
         root_folder_path: Path,
@@ -40,7 +45,10 @@ class ModelManager:
         self.configuration = self._read_configuration_file(configuration_file_path)
 
     def get_included_paths(self) -> list[Path]:
-        paths = []
+        """Returns all the path files that will be included in the model according to
+        the configuration and project summary files.
+        """
+        paths: list[Path] = []
         self._include_envelope_structure(paths)
         self._include_envelopes(paths)
         self._include_source(paths)
@@ -50,6 +58,7 @@ class ModelManager:
         return paths
 
     def get_universe_id(self, envelope_name: str) -> int:
+        """Returns the universe ID of the envelope filler model."""
         filler_model_path = self.project_summary[
             self.configuration.envelopes[envelope_name].filler
         ]
@@ -129,7 +138,7 @@ class ModelManager:
                     f"Transform file {transform} not found in project summary."
                 ) from e
 
-    def _read_configuration_file(self, configuration_file_path: Path) -> Configuration:
+    def _read_configuration_file(self, configuration_file_path: Path) -> _Configuration:
         """
         Reads the configuration file.
         """
@@ -140,11 +149,11 @@ class ModelManager:
         for envelope_name, envelope_data in envelopes_dict.items():
             if not envelope_data:
                 continue
-            envelopes_dict[envelope_name] = EnvelopeData(
+            envelopes_dict[envelope_name] = _EnvelopeData(
                 envelope_data.get("filler"), envelope_data.get("transform")
             )
 
-        configuration = Configuration(
+        configuration = _Configuration(
             overrides=conf_dict.get("overrides"),
             envelope_structure=conf_dict.get("envelope_structure"),
             envelopes=conf_dict.get("envelopes"),
@@ -157,8 +166,8 @@ class ModelManager:
         return configuration
 
     def _override_base_configuration(
-        self, configuration: Configuration
-    ) -> Configuration:
+        self, configuration: _Configuration
+    ) -> _Configuration:
         if not configuration.overrides:
             return configuration
         try:
@@ -185,7 +194,7 @@ class ModelManager:
             base_configuration.transforms = configuration.transforms
         return base_configuration
 
-    def _read_project_summary(self, project_summary_path: Path) -> dict:
+    def _read_project_summary(self, project_summary_path: Path) -> dict[Any, Any]:
         """
         Reads the project summary file and returns its content as a dictionary.
         """
@@ -195,9 +204,9 @@ class ModelManager:
             for row in reader:
                 name = row["Name"]
                 if name in project_summary:
-                    raise ValueError("The Name column has repeated values for %s", name)
+                    raise ValueError(f"The Name column has repeated values for {name}")
                 path = self.root_folder_path / Path(row["Relative path"])
                 if not path.exists():
-                    raise ValueError("The path %s does not exist", path)
+                    raise ValueError(f"The path {path} does not exist")
                 project_summary[name] = path
         return project_summary

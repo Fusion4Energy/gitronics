@@ -59,9 +59,7 @@ def fill_envelope_cards(
     form "$ FILL = envelope_name" with the actual universe id and transformation card
     if needed.
     """
-    envelope_structure_id = _get_envelope_structure_first_cell_id(
-        parsed_blocks, model_manager
-    )
+    envelope_structure_id = _get_envelope_structure_first_cell_id(model_manager)
     text = parsed_blocks.cells[envelope_structure_id]
     for envelope_name, envelope_data in model_manager.configuration.envelopes.items():
         placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}"
@@ -76,9 +74,7 @@ def fill_envelope_cards(
     parsed_blocks.cells[envelope_structure_id] = text
 
 
-def _get_envelope_structure_first_cell_id(
-    parsed_blocks: ParsedBlocks, model_manager: ModelManager
-) -> int:
+def _get_envelope_structure_first_cell_id(model_manager: ModelManager) -> int:
     path = model_manager.project_summary[model_manager.configuration.envelope_structure]
     with open(path, encoding="utf-8") as infile:
         for line in infile:
