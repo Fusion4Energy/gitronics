@@ -103,6 +103,8 @@ class ModelManager:
             ) from e
 
     def _include_tallies(self, paths: list[Path]) -> None:
+        if not self.configuration.tallies:
+            return
         for tally in self.configuration.tallies:
             try:
                 path = self.project_summary[tally]
@@ -115,6 +117,8 @@ class ModelManager:
                 ) from e
 
     def _include_materials(self, paths: list[Path]) -> None:
+        if not self.configuration.materials:
+            return
         for material in self.configuration.materials:
             try:
                 path = self.project_summary[material]
@@ -127,6 +131,8 @@ class ModelManager:
                 ) from e
 
     def _include_transforms(self, paths: list[Path]) -> None:
+        if not self.configuration.transforms:
+            return
         for transform in self.configuration.transforms:
             try:
                 path = self.project_summary[transform]

@@ -182,6 +182,32 @@ def test_transform_not_found():
         model_manager.get_included_paths()
 
 
+def test_no_tallies_materials_and_transforms():
+    configuration_path = (
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "example_structure"
+        / "configurations/configuration_no_data_cards.yml"
+    )
+    model_manager = ModelManager(PROJECT_PATH, configuration_path, PROJECT_SUMMARY_PATH)
+    result_paths = model_manager.get_included_paths()
+    assert PROJECT_PATH / "data_cards" / "my_transform.transform" not in result_paths
+    assert PROJECT_PATH / "data_cards" / "fine_mesh.tally" not in result_paths
+    assert PROJECT_PATH / "data_cards" / "materials.mat" not in result_paths
+
+
+def test_repeated_paths():
+    configuration_path = (
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "example_structure"
+        / "configurations/configuration_repeated_paths.yml"
+    )
+    model_manager = ModelManager(PROJECT_PATH, configuration_path, PROJECT_SUMMARY_PATH)
+    result_paths = model_manager.get_included_paths()
+    assert len(result_paths) == len(set(result_paths))
+
+
 def test_get_universe_id():
     model_manager = ModelManager(PROJECT_PATH, CONFIGURATION_PATH, PROJECT_SUMMARY_PATH)
     model_1_id = 121
