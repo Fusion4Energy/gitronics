@@ -74,7 +74,7 @@ def fill_envelope_cards(
 
         # Create the fill card
         universe_id = model_manager.get_universe_id(envelope_name)
-        fill_card = f" FILL = {universe_id}"
+        fill_card = f" FILL = {universe_id} \n           $ {envelope_name} "
         if envelope_data.transform:
             fill_card += f" {envelope_data.transform}"
 
