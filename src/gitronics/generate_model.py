@@ -68,15 +68,16 @@ def fill_envelope_cards(
             continue
 
         # Search for the placeholder in the envelope structure
-        placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}"
+        placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n"
         if not re.search(placeholder, text):
             raise ValueError(f"Could not find {placeholder} in envelope structure.")
 
         # Create the fill card
         universe_id = model_manager.get_universe_id(envelope_name)
-        fill_card = f" FILL = {universe_id} \n           $ {envelope_name} "
+        fill_card = f" FILL = {universe_id} "
         if envelope_data.transform:
-            fill_card += f" {envelope_data.transform}"
+            fill_card += f" {envelope_data.transform} "
+        fill_card += f"\n           $ {envelope_name} \n"
 
         # Modify the text
         text = re.sub(placeholder, fill_card, text)
