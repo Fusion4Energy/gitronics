@@ -2,7 +2,7 @@ overrides:
 envelope_structure: Envelope structure
 envelopes:
   My envelope name 1: { filler: Model 1 }
-  Envelope_2: { filler: Model 1, transform: TR = 1 }
+  Envelope_2: { filler: Model 1, transform: (1) }
 source: Main source
 tallies: [fine_mesh, fine_mesh]
 materials: [Standard materials, Standard materials]
