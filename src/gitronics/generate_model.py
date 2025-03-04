@@ -4,6 +4,7 @@ to generate the MCNP model.
 """
 
 import json
+import logging
 import re
 from importlib.metadata import version
 from pathlib import Path
@@ -59,6 +60,7 @@ def fill_envelope_cards(
     form "$ FILL = envelope_name" with the actual universe id and transformation card
     if needed.
     """
+    logging.info("Preparing FILL cards in the envelope structure.")
     envelope_structure_id = _get_envelope_structure_first_cell_id(model_manager)
     text = parsed_blocks.cells[envelope_structure_id]
 
@@ -70,8 +72,12 @@ def fill_envelope_cards(
         # Search for the placeholder in the envelope structure
         placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n"
         if not re.search(placeholder, text):
-            raise ValueError(f"Could not find {placeholder} in envelope structure.")
-
+            raise ValueError(
+                f"Envelope name {envelope_name} not found in envelope "
+                f"structure. The pattern $ FILL = {envelope_name} does not"
+                " appear in the envelope structure MCNP file."
+            )
+        
         # Create the fill card
         universe_id = model_manager.get_universe_id(envelope_name)
         fill_card = f" FILL = {universe_id} "
