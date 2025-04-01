@@ -123,7 +123,9 @@ def _read_mcnp(file: Path) -> Tuple[_FirstIdAndText, _FirstIdAndText]:
 def _read_first_block(file: Path) -> _FirstIdAndText:
     with open(file, encoding="utf-8") as infile:
         text = BLANK_LINE.split(infile.read())[0]
-
+        if text[-1] != "\n":
+            text += "\n"
+            
     match_first_id = re.search(r"^\*?[a-zA-Z]*(\d+)", text, flags=re.MULTILINE)
     if not match_first_id:
         raise ValueError(f"Could not parse the first ID value in file {file}...")
