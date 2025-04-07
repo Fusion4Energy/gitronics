@@ -5,3 +5,6 @@ __pycache__/
 src/_version.py
 .coverage
 .assembled
+docs/_build/
+make.bat
+Makefile
