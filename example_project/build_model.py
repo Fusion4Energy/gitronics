@@ -9,12 +9,10 @@ from pathlib import Path
 
 from gitronics import generate_model
 
-ROOT_FOLDER_PATH = Path(r"tests/example_structure")
-CONFIGURATION_FILE_PATH = Path(
-    r"tests/example_structure/configurations/configuration_1.yml"
-)
-PROJECT_SUMMARY_PATH = Path(r"tests/example_structure/project_summary.csv")
-WRITE_PATH = Path(r"tests/example_structure/.assembled")
+ROOT_FOLDER_PATH = Path(r".")
+CONFIGURATION_FILE_PATH = Path(r"configurations/configuration_1.yml")
+PROJECT_SUMMARY_PATH = Path(r"./project_summary.csv")
+WRITE_PATH = Path(r"./assembled")
 
 
 def _main():

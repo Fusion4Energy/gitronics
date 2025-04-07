@@ -1,0 +1,32 @@
+C Filler model 3
+this is
+not a valid
+cells section
+
+C Surfaces model 3
+100    PZ  -1.4030000e+02
+200    PZ   4.6300000e+01
+300    CZ    160.700000
+400    CZ    144.900000
+
+C Data cards that will not be read by the global model
+m14   1001.31c  2.379E-02  $ H-1
+      5010.31c  2.350E-04  $ B10
+      5011.31c  9.469E-04  $ B11
+      8016.31c  4.276E-02  $ O 
+     11023.31c  2.068E-04  $ Na   
+c     12000.31c  3.768E-05  $ Mg 
+     12024.31c  2.976E-05  $ Mg-24  78.99%
+     12025.31c  3.768E-06  $ Mg-25  10.0 %
+     12026.31c  4.149E-06  $ Mg-26  11.01%
+     13027.31c  6.034E-04  $ Al 
+c     14000.31c  1.239E-02  $ Si 
+     14028.31c  1.143E-02  $ Si-28  92.23%
+     14029.31c  5.786E-04  $ Si-29   4.67%
+c
+mode  n 
+sdef sur 398 nrm=-1 dir=d1 wgt=132732289.6141
+sb1    -21  2
+lost 1000
+prdmp j 1e7 
+nps  1e9  

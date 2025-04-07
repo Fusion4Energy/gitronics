@@ -1,0 +1,7 @@
+C This file includes the sdef and all other parameters like NPS 
+mode  n 
+sdef sur 398 nrm=-1 dir=d1 wgt=132732289.6141
+sb1    -21  2
+lost 1000
+prdmp j 1e7 
+nps  1e9 
