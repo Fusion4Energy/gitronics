@@ -1,3 +1,5 @@
+![Gitronics Logo](docs/source/_static/logo.png)
+
 # Gitronics
  A tool to manage and automatically build an MCNP model from a set of files.
 
