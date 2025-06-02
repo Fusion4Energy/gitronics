@@ -8,7 +8,6 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
 
 
 @dataclass
@@ -94,7 +93,7 @@ BLANK_LINE = re.compile(r"^\s*\n", flags=re.MULTILINE)
 MCNP_FILE_NEEDED_BLOCKS = 2
 
 
-def _read_mcnp(file: Path) -> Tuple[_FirstIdAndText, _FirstIdAndText]:
+def _read_mcnp(file: Path) -> tuple[_FirstIdAndText, _FirstIdAndText]:
     with open(file, encoding="utf-8") as infile:
         blocks = BLANK_LINE.split(infile.read())
 
@@ -125,7 +124,7 @@ def _read_first_block(file: Path) -> _FirstIdAndText:
         text = BLANK_LINE.split(infile.read())[0]
         if text[-1] != "\n":
             text += "\n"
-            
+
     match_first_id = re.search(r"^\*?[a-zA-Z]*(\d+)", text, flags=re.MULTILINE)
     if not match_first_id:
         raise ValueError(f"Could not parse the first ID value in file {file}...")

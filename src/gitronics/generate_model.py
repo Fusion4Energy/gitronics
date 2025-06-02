@@ -77,7 +77,7 @@ def fill_envelope_cards(
                 f"structure. The pattern $ FILL = {envelope_name} does not"
                 " appear in the envelope structure MCNP file."
             )
-        
+
         # Create the fill card
         universe_id = model_manager.get_universe_id(envelope_name)
         fill_card = f" FILL = {universe_id} "
