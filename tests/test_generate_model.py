@@ -2,8 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from gitronics.file_readers import ParsedBlocks
-from gitronics.generate_model import _fill_envelope_cards, generate_model
+from gitronics.generate_model import generate_model
 
 ROOT_FOLDER_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
 PROJECT_SUMMARY_PATH = (
