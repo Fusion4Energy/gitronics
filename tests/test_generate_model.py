@@ -1,14 +1,11 @@
 from pathlib import Path
 
-from gitronics.generate_model import generate_model
+import pytest
+
+from gitronics.file_readers import ParsedBlocks
+from gitronics.generate_model import _fill_envelope_cards, generate_model
 
 ROOT_FOLDER_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
-CONFIGURATION_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "tests"
-    / "example_structure"
-    / "configurations/configuration_1.yml"
-)
 PROJECT_SUMMARY_PATH = (
     Path(__file__).resolve().parents[1]
     / "tests"
@@ -18,9 +15,15 @@ PROJECT_SUMMARY_PATH = (
 
 
 def test_generate_model(tmpdir):
+    configuration_path = (
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "example_structure"
+        / "configurations/configuration_1.yml"
+    )
     generate_model(
         root_folder_path=ROOT_FOLDER_PATH,
-        configuration_file_path=CONFIGURATION_PATH,
+        configuration_file_path=configuration_path,
         project_summary_path=PROJECT_SUMMARY_PATH,
         write_path=Path(tmpdir),
     )
@@ -61,3 +64,19 @@ def test_envelope_left_empty_in_configuration(tmpdir):
         result_text = infile.read()
 
     assert "$ FILL = My envelope name 1" in result_text
+
+
+def test_envelope_name_not_found_in_envelope_structure(tmpdir):
+    configuration_path = (
+        Path(__file__).resolve().parents[1]
+        / "tests"
+        / "example_structure"
+        / "configurations/config_envelope_name_not_found.yml"
+    )
+    with pytest.raises(ValueError):
+        generate_model(
+            root_folder_path=ROOT_FOLDER_PATH,
+            configuration_file_path=configuration_path,
+            project_summary_path=PROJECT_SUMMARY_PATH,
+            write_path=Path(tmpdir),
+        )

@@ -46,14 +46,14 @@ def generate_model(
     )
     file_paths = model_manager.get_included_paths()
     parsed_blocks = read_files(file_paths)
-    fill_envelope_cards(parsed_blocks, model_manager)
+    _fill_envelope_cards(parsed_blocks, model_manager)
     text = compose_model(parsed_blocks)
     with open(write_path / "assembled.mcnp", "w", encoding="utf-8") as infile:
         infile.write(text)
     _dump_metadata(write_path)
 
 
-def fill_envelope_cards(
+def _fill_envelope_cards(
     parsed_blocks: ParsedBlocks, model_manager: ModelManager
 ) -> None:
     """Modifies the ParseBlocks by filling the envelope cards with a placeholder of the
