@@ -1,0 +1,8 @@
+overrides:
+envelope_structure: Envelope structure
+envelopes:
+  envelope that doesnt exist: { filler: Model 1 }
+source: Main source
+tallies: [fine_mesh]
+materials: [Standard materials]
+transforms: [My transform]
