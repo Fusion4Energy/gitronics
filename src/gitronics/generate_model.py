@@ -64,6 +64,10 @@ def _fill_envelope_cards(
     envelope_structure_id = _get_envelope_structure_first_cell_id(model_manager)
     text = parsed_blocks.cells[envelope_structure_id]
 
+    if not model_manager.configuration.envelopes:
+        logging.warning("No envelopes to fill, skipping FILL cards.")
+        return
+
     for envelope_name, envelope_data in model_manager.configuration.envelopes.items():
         # If the envelope is left empty in the configuration do not fill
         if not envelope_data:

@@ -16,6 +16,7 @@ def compose_model(parsed_data: ParsedBlocks) -> str:
     as a string.
     """
     logging.info("Composing model")
+    _trigger_warnings(parsed_data)
     model = StringIO()
 
     _write_cards_on_model(parsed_data.cells, model)

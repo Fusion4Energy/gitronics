@@ -80,6 +80,8 @@ class ModelManager:
             ) from e
 
     def _include_envelopes(self, paths: list[Path]) -> None:
+        if not self.configuration.envelopes:
+            return
         for envelope in self.configuration.envelopes.values():
             if not envelope or not envelope.filler:
                 continue
@@ -94,6 +96,8 @@ class ModelManager:
                 ) from e
 
     def _include_source(self, paths: list[Path]) -> None:
+        if not self.configuration.source:
+            return
         try:
             path = self.project_summary[self.configuration.source]
             paths.append(path)
