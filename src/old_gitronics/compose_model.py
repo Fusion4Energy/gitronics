@@ -7,7 +7,7 @@ import logging
 from io import StringIO
 from typing import TextIO
 
-from gitronics.file_readers import ParsedBlocks
+from old_gitronics.file_readers import ParsedBlocks
 
 
 def compose_model(parsed_data: ParsedBlocks) -> str:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from gitronics.file_readers import read_files
+from old_gitronics.file_readers import read_files
 
 PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
 

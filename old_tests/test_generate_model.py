@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from gitronics.generate_model import generate_model
+from old_gitronics.generate_model import generate_model
 
 ROOT_FOLDER_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
 PROJECT_SUMMARY_PATH = (

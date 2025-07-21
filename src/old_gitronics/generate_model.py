@@ -9,9 +9,9 @@ import re
 from importlib.metadata import version
 from pathlib import Path
 
-from gitronics.compose_model import compose_model
-from gitronics.file_readers import ParsedBlocks, read_files
-from gitronics.model_manager import ModelManager
+from old_gitronics.compose_model import compose_model
+from old_gitronics.file_readers import ParsedBlocks, read_files
+from old_gitronics.model_manager import ModelManager
 
 
 def generate_model(

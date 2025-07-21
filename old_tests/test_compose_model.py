@@ -2,8 +2,8 @@
 import logging
 from pathlib import Path
 
-from gitronics.compose_model import _trigger_warnings, compose_model
-from gitronics.file_readers import ParsedBlocks
+from old_gitronics.compose_model import _trigger_warnings, compose_model
+from old_gitronics.file_readers import ParsedBlocks
 
 PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
 

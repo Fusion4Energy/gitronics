@@ -7,7 +7,7 @@ Adapt the PATHS constants to the correct paths.
 import logging
 from pathlib import Path
 
-from gitronics import generate_model
+from old_gitronics import generate_model
 
 ROOT_FOLDER_PATH = Path(r".")
 CONFIGURATION_FILE_PATH = Path(r"configurations/configuration_1.yml")

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from gitronics.model_manager import ModelManager
+from old_gitronics.model_manager import ModelManager
 
 PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
 CONFIGURATION_PATH = (
