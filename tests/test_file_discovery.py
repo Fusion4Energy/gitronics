@@ -18,6 +18,7 @@ def test_get_file_paths():
         "filler_model_1",
         "filler_model_2",
         "filler_model_3",
+        "valid_configuration",
     }
     for file_path in file_paths.values():
         assert file_path.is_file()
