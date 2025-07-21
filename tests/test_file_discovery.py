@@ -9,7 +9,19 @@ PATH_TEST_RESOURCES = Path(__file__).parent / "test_resources"
 
 def test_get_file_paths():
     file_paths = get_file_paths(PATH_TEST_RESOURCES / "valid_project")
-    pass
+    assert set(file_paths.keys()) == {
+        "fine_mesh",
+        "materials",
+        "my_transform",
+        "volumetric_source",
+        "envelope_structure",
+        "filler_model_1",
+        "filler_model_2",
+        "filler_model_3",
+    }
+    for file_path in file_paths.values():
+        assert file_path.is_file()
+        assert (file_path.with_suffix(".metadata")).is_file()
 
 
 def test_get_file_paths_directory_does_not_exist():

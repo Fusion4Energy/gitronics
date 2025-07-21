@@ -1,6 +1,6 @@
 from pathlib import Path
 
-ALLOWED_SUFFIXES = {".mcnp", ".transform", ".mat", ".source", ".tally"}
+ALLOWED_SUFFIXES = {".mcnp", ".transform", ".mat", ".source", ".tally", ".yaml", ".yml"}
 
 
 def get_file_paths(project_root: Path) -> dict[str, Path]:
@@ -27,5 +27,5 @@ def get_file_paths(project_root: Path) -> dict[str, Path]:
             continue
         else:
             raise ValueError(f"Unsupported file suffix for: {path}")
-    
+
     return file_paths
