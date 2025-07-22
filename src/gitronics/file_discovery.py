@@ -21,7 +21,7 @@ def get_file_paths(project_root: Path) -> dict[str, Path]:
             if file_name in file_paths:
                 raise ValueError(f"Duplicate file name found: {file_name}")
             file_paths[file_name] = path
-            if not path.with_suffix(".metadata").exists():
+            if not path.with_suffix(".metadata").exists() and path.suffix == ".mcnp":
                 raise FileNotFoundError(f"Metadata file not found for: {path}")
         elif path.suffix == ".metadata":
             continue

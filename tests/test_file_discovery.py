@@ -19,11 +19,10 @@ def test_get_file_paths():
         "filler_model_2",
         "filler_model_3",
         "valid_configuration",
+        "overrides_configuration",
     }
     for file_path in file_paths.values():
         assert file_path.is_file()
-        assert (file_path.with_suffix(".metadata")).is_file()
-
 
 def test_get_file_paths_directory_does_not_exist():
     non_existent_path = Path("/non/existent/path")

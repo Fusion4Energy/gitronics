@@ -2,7 +2,7 @@ overrides: null
 envelope_structure: envelope_structure
 envelopes:
   my_envelope_name_1: filler_model_1
-  envelope_2: filler_model_2
+  envelope_name_2: filler_model_2
 source: volumetric_source
 materials: [materials]
 transformations: [my_transform]

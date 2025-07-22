@@ -1,30 +1,29 @@
-from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
 from gitronics.file_discovery import get_file_paths
-
-
-@dataclass
-class _Configuration:
-    overrides: str | None
-    envelope_structure: str | None
-    envelopes: dict[str, str]
-    source: str | None
-    tallies: list[str] | None
-    materials: list[str] | None
-    transforms: list[str] | None
+from gitronics.helpers import Config
+from gitronics.project_checker import ProjectChecker
 
 
 class ProjectManager:
     def __init__(self, project_path: Path):
         self.file_paths = get_file_paths(project_path)
+        self.project_checker = ProjectChecker(self.file_paths)
 
-    def build_model(self, configuration_name: str, write_path: Path):
-        pass
+    def get_included_paths(self, config: Config) -> list[Path]:
+        self.project_checker.check_configuration(config)
+        paths = []
+        self._include_envelope_structure(paths, config)
+        self._include_fillers(paths, config)
+        self._include_source(paths, config)
+        self._include_tallies(paths, config)
+        self._include_materials(paths, config)
+        self._include_transforms(paths, config)
+        return paths
 
-    def read_configuration(self, configuration_name: str) -> _Configuration:
+    def read_configuration(self, configuration_name: str) -> Config:
         if configuration_name not in self.file_paths:
             raise ValueError(f"Configuration file {configuration_name} not found.")
         conf_path = self.file_paths[configuration_name]
@@ -32,7 +31,7 @@ class ProjectManager:
         with open(conf_path, encoding="utf-8") as infile:
             conf_dict = yaml.safe_load(infile)
 
-        configuration = _Configuration(
+        configuration = Config(
             overrides=conf_dict.get("overrides"),
             envelope_structure=conf_dict.get("envelope_structure"),
             envelopes=conf_dict.get("envelopes", {}),
@@ -46,7 +45,7 @@ class ProjectManager:
 
         return configuration
 
-    def _override_configuration(self, new_conf: _Configuration) -> _Configuration:
+    def _override_configuration(self, new_conf: Config) -> Config:
         if not new_conf.overrides:
             return new_conf
 
@@ -67,16 +66,35 @@ class ProjectManager:
 
         return base
 
-    def check_project(self):
-        self.create_summary(write_path=Path(""))
-        self.check_all_files_are_valid()
-        self.check_all_configurations_are_valid()
+    def _include_envelope_structure(self, paths: list[Path], config: Config) -> None:
+        if config.envelope_structure in self.file_paths:
+            paths.append(self.file_paths[config.envelope_structure])
 
-    def create_summary(self, write_path: Path):
-        pass
+    def _include_fillers(self, paths: list[Path], config: Config) -> None:
+        if not config.envelopes:
+            return
+        for filler in config.envelopes.values():
+            paths.append(self.file_paths[filler])
 
-    def check_all_files_are_valid(self):
-        pass
+    def _include_source(self, paths: list[Path], config: Config) -> None:
+        if not config.source:
+            return
+        paths.append(self.file_paths[config.source])
 
-    def check_all_configurations_are_valid(self):
-        pass
+    def _include_tallies(self, paths: list[Path], config: Config) -> None:
+        if not config.tallies:
+            return
+        for tally in config.tallies:
+            paths.append(self.file_paths[tally])
+
+    def _include_materials(self, paths: list[Path], config: Config) -> None:
+        if not config.materials:
+            return
+        for material in config.materials:
+            paths.append(self.file_paths[material])
+
+    def _include_transforms(self, paths: list[Path], config: Config) -> None:
+        if not config.transforms:
+            return
+        for transform in config.transforms:
+            paths.append(self.file_paths[transform])
