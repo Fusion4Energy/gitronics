@@ -106,6 +106,8 @@ class ProjectManager:
         if not config.envelopes:
             return
         for filler in config.envelopes.values():
+            if not filler:
+                continue
             paths.append(self.file_paths[filler])
 
     def _include_source(self, paths: list[Path], config: Config) -> None:
