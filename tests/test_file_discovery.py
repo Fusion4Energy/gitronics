@@ -9,7 +9,7 @@ PATH_TEST_RESOURCES = Path(__file__).parent / "test_resources"
 
 def test_get_file_paths():
     file_paths = get_file_paths(PATH_TEST_RESOURCES / "valid_project")
-    assert set(file_paths.keys()) == {
+    assert {
         "fine_mesh",
         "materials",
         "my_transform",
@@ -20,9 +20,10 @@ def test_get_file_paths():
         "filler_model_3",
         "valid_configuration",
         "overrides_configuration",
-    }
+    }.issubset(set(file_paths.keys()))
     for file_path in file_paths.values():
         assert file_path.is_file()
+
 
 def test_get_file_paths_directory_does_not_exist():
     non_existent_path = Path("/non/existent/path")

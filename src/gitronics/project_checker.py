@@ -38,7 +38,7 @@ class ProjectChecker:
     def _check_envelope_structure(self, config: Config) -> None:
         if not config.envelope_structure:
             raise ValueError("Envelope structure is not defined in the configuration.")
-        if not self.file_paths[config.envelope_structure]:
+        if config.envelope_structure not in self.file_paths:
             raise ValueError(
                 f"Envelope structure file {config.envelope_structure} not found "
                 "in the project."

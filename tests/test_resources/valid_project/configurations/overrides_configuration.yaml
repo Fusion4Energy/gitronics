@@ -1,6 +1,9 @@
 overrides: valid_configuration
+envelope_structure: my_envelope_structure
 envelopes:
   my_envelope_name_1: filler_model_2
   envelope_name_2:
 transformations: [my_transform]
+source: my_source
 tallies: []
+materials: []

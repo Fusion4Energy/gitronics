@@ -1,0 +1,8 @@
+overrides: null
+envelope_structure: envelope_structure
+envelopes:
+  my_envelope_name_1: filler_model_1
+  envelope_name_2: filler_model_2
+materials: [wrong]
+transformations: [my_transform]
+tallies: [fine_mesh]
