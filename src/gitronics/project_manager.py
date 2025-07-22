@@ -1,4 +1,6 @@
+import re
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -22,6 +24,36 @@ class ProjectManager:
         self._include_materials(paths, config)
         self._include_transforms(paths, config)
         return paths
+
+    def get_metadata(self, name: str) -> dict[str, Any]:
+        if name not in self.file_paths:
+            raise ValueError(f"File {name} not found in the project.")
+
+        file_path = self.file_paths[name].with_suffix(".metadata")
+        with open(file_path, encoding="utf-8") as infile:
+            metadata = yaml.safe_load(infile) or {}
+
+        return metadata
+
+    def get_transformation(self, filler_name: str, envelope_name: str) -> str | None:
+        metadata = self.get_metadata(filler_name)
+        try:
+            return metadata["transformations"][envelope_name]
+        except KeyError:
+            raise ValueError(
+                f"Transformation for envelope {envelope_name} not found in "
+                f"filler model {filler_name} metadata."
+            )
+
+    def get_universe_id(self, filler_name: str) -> int:
+        """Returns the universe ID of the filler model."""
+        filler_path = self.file_paths[filler_name]
+        with open(filler_path, encoding="utf-8") as infile:
+            for line in infile:
+                universe_match = re.match(r"^[^cC\$]*\s*[uU]\s*=\s*(\d+)", line)
+                if universe_match:
+                    return int(universe_match.group(1))
+        raise ValueError(f"Universe ID not found in filler model {filler_path}")
 
     def read_configuration(self, configuration_name: str) -> Config:
         if configuration_name not in self.file_paths:

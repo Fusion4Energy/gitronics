@@ -18,12 +18,12 @@ def project_checker(model_manager):
     return ProjectChecker(model_manager.file_paths)
 
 
-def test_check_configuration_env_struct_missing(model_manager, project_checker):
+def test_check_configuration_valid(model_manager, project_checker):
     configuration = model_manager.read_configuration("valid_configuration")
     project_checker.check_configuration(configuration)
 
 
-def test_check_configuration_invalid(model_manager, project_checker):
+def test_check_configuration_env_struct_not_defined(model_manager, project_checker):
     configuration = model_manager.read_configuration("missing_env_struct")
     with pytest.raises(
         ValueError, match="Envelope structure is not defined in the configuration."
