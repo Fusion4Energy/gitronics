@@ -1,8 +1,0 @@
-overrides: Standard configuration
-envelope_structure: Model 1
-envelopes:
-  Envelope_2:  # Leave empty this envelope
-source: Ring source
-tallies: []
-materials: [Materials BAD]
-transforms: []

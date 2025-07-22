@@ -1,8 +1,0 @@
-overrides:
-envelope_structure: Envelope structure
-envelopes:
-  My envelope name 1: { filler: Model 1 }
-source: Main source
-tallies: [fine_mesh]
-materials: [WRONG]
-transforms: [My transform]

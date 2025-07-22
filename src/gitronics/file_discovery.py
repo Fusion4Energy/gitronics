@@ -25,7 +25,5 @@ def get_file_paths(project_root: Path) -> dict[str, Path]:
                 raise FileNotFoundError(f"Metadata file not found for: {path}")
         elif path.suffix == ".metadata":
             continue
-        else:
-            raise ValueError(f"Unsupported file suffix for: {path}")
 
     return file_paths

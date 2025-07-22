@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from gitronics.generate_model import generate_model
 
 VALID_PROJECT_PATH = Path(__file__).parent / "test_resources" / "valid_project"
@@ -25,9 +27,9 @@ def test_generate_model(tmpdir):
         assert result_lines[i] == expected_lines[i]
 
     # Check that metadata was generated
-    with open(tmpdir / "gitronics_metadata.json") as infile:
-        metadata = infile.read()
-    assert "version" in metadata
+    with open(tmpdir / "assembled.metadata") as infile:
+        metadata = yaml.safe_load(infile)
+    assert "gitronics_version" in metadata
 
 
 def test_envelope_left_empty_in_configuration(tmpdir):

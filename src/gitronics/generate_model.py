@@ -3,12 +3,12 @@ This file contains the generate_model function, the only function a user needs t
 to generate the MCNP model.
 """
 
-import json
 import logging
 import re
 from importlib.metadata import version
-from importlib.resources import path
 from pathlib import Path
+
+import yaml
 
 from gitronics.compose_model import compose_model
 from gitronics.file_readers import ParsedBlocks, read_files
@@ -87,13 +87,11 @@ class _ModelManager:
         raise ValueError(f"Could not find the first cell ID in {path}.")
 
     def _dump_metadata(self) -> None:
-        with open(
-            self.write_path / "gitronics_metadata.json", "w", encoding="utf-8"
-        ) as infile:
+        with open(self.write_path / "assembled.metadata", "w", encoding="utf-8") as infile:
             metadata = {
                 "gitronics_version": version("gitronics"),
             }
-            json.dump(metadata, infile, indent=4)
+            yaml.dump(metadata, infile, default_flow_style=False)
 
 
 def generate_model(
