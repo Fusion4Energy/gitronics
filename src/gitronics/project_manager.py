@@ -16,7 +16,7 @@ class ProjectManager:
 
     def get_included_paths(self, config: Config) -> list[Path]:
         self.project_checker.check_configuration(config)
-        paths = []
+        paths: list[Path] = []
         self._include_envelope_structure(paths, config)
         self._include_fillers(paths, config)
         self._include_source(paths, config)
@@ -38,7 +38,8 @@ class ProjectManager:
     def get_transformation(self, filler_name: str, envelope_name: str) -> str | None:
         metadata = self.get_metadata(filler_name)
         try:
-            return metadata["transformations"][envelope_name]
+            transformation: str | None = metadata["transformations"][envelope_name]
+            return transformation
         except KeyError:
             raise ValueError(
                 f"Transformation for envelope {envelope_name} not found in "
@@ -108,7 +109,9 @@ class ProjectManager:
         for filler in config.envelopes.values():
             if not filler:
                 continue
-            paths.append(self.file_paths[filler])
+            path = self.file_paths[filler]
+            if path not in paths:
+                paths.append(path)
 
     def _include_source(self, paths: list[Path], config: Config) -> None:
         if not config.source:

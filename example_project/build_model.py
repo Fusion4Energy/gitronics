@@ -7,14 +7,18 @@ Adapt the PATHS constants to the correct paths.
 import logging
 from pathlib import Path
 
-from gitronics.generate_model import generate_model
+from gitronics import generate_model
 
 ROOT_FOLDER_PATH = Path(r".")
 WRITE_PATH = Path(r"./assembled")
 
 
 def _main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     generate_model(
         root_folder_path=ROOT_FOLDER_PATH,
         configuration_name="valid_configuration",

@@ -87,7 +87,9 @@ class _ModelManager:
         raise ValueError(f"Could not find the first cell ID in {path}.")
 
     def _dump_metadata(self) -> None:
-        with open(self.write_path / "assembled.metadata", "w", encoding="utf-8") as infile:
+        with open(
+            self.write_path / "assembled.metadata", "w", encoding="utf-8"
+        ) as infile:
             metadata = {
                 "gitronics_version": version("gitronics"),
             }

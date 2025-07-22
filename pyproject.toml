@@ -18,4 +18,4 @@ requires-python = ">=3.12"
 dependencies = ["PyYAML"]
 
 [project.optional-dependencies]
-tests = ["pytest", "pytest-cov"]
+tests = ["pytest", "pytest-cov", "mypy", "pylint", "types-PyYAML"]

@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ class ProjectChecker:
     #     pass
 
     def check_configuration(self, config: Config) -> None:
+        logging.info("Checking project configuration.")
         self._check_envelope_structure(config)
         self._check_envelopes(config)
         self._check_source(config)
@@ -54,18 +56,12 @@ class ProjectChecker:
             if filler_name not in self.file_paths:
                 raise ValueError(f"Filler file {filler_name} not found in the project.")
 
+        envelope_structure_path = self.file_paths[config.envelope_structure]
+        with open(envelope_structure_path, encoding="utf-8") as infile:
+            text = infile.read()
         for envelope_name in config.envelopes:
-            envelope_found = False
-            placeholder_pat = re.compile(rf"^[^cC]*\$\s*FILL\s*=\s*{envelope_name}")
-            assert config.envelope_structure
-            with open(
-                self.file_paths[config.envelope_structure], encoding="utf-8"
-            ) as infile:
-                for line in infile:
-                    if placeholder_pat.match(line):
-                        envelope_found = True
-                        break
-            if not envelope_found:
+            placeholder_pat = re.compile(rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n")
+            if not placeholder_pat.search(text):
                 raise ValueError(
                     f"Envelope {envelope_name} not found in the envelope structure."
                 )
