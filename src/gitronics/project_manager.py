@@ -4,18 +4,19 @@ from typing import Any
 
 import yaml
 
-from gitronics.file_discovery import get_file_paths
-from gitronics.helpers import Config
-from gitronics.project_checker import ProjectChecker
+from gitronics.file_discovery import discover_file_paths
+from gitronics.helpers import Config, GitronicsError
 
 
 class ProjectManager:
-    def __init__(self, project_path: Path):
-        self.file_paths = get_file_paths(project_path)
-        self.project_checker = ProjectChecker(self.file_paths)
+    def __init__(self, project_root: Path):
+        if not project_root.exists() or not project_root.is_dir():
+            raise GitronicsError(f"The directory {project_root} does not exist.")
+        
+        self.project_root = project_root
+        self.file_paths = discover_file_paths(project_root)
 
     def get_included_paths(self, config: Config) -> list[Path]:
-        self.project_checker.check_configuration(config)
         paths: list[Path] = []
         self._include_envelope_structure(paths, config)
         self._include_fillers(paths, config)
@@ -27,24 +28,19 @@ class ProjectManager:
 
     def get_metadata(self, name: str) -> dict[str, Any]:
         if name not in self.file_paths:
-            raise ValueError(f"File {name} not found in the project.")
+            raise GitronicsError(f"File {name} not found in the project.")
 
         file_path = self.file_paths[name].with_suffix(".metadata")
+        if not file_path.exists():
+            raise GitronicsError(f"Metadata file not found for {name}.")
+
         with open(file_path, encoding="utf-8") as infile:
             metadata = yaml.safe_load(infile) or {}
-
         return metadata
 
     def get_transformation(self, filler_name: str, envelope_name: str) -> str | None:
         metadata = self.get_metadata(filler_name)
-        try:
-            transformation: str | None = metadata["transformations"][envelope_name]
-            return transformation
-        except KeyError:
-            raise ValueError(
-                f"Transformation for envelope {envelope_name} not found in "
-                f"filler model {filler_name} metadata."
-            )
+        return metadata["transformations"][envelope_name]
 
     def get_universe_id(self, filler_name: str) -> int:
         """Returns the universe ID of the filler model."""
@@ -54,11 +50,11 @@ class ProjectManager:
                 universe_match = re.match(r"^[^cC\$]*\s*[uU]\s*=\s*(\d+)", line)
                 if universe_match:
                     return int(universe_match.group(1))
-        raise ValueError(f"Universe ID not found in filler model {filler_path}")
+        raise GitronicsError(f"Universe ID not found in filler model {filler_path}")
 
     def read_configuration(self, configuration_name: str) -> Config:
         if configuration_name not in self.file_paths:
-            raise ValueError(f"Configuration file {configuration_name} not found.")
+            raise GitronicsError(f"Configuration file {configuration_name} not found.")
         conf_path = self.file_paths[configuration_name]
 
         with open(conf_path, encoding="utf-8") as infile:

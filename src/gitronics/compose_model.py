@@ -16,7 +16,6 @@ def compose_model(parsed_data: ParsedBlocks) -> str:
     as a string.
     """
     logging.info("Composing model")
-    _trigger_warnings(parsed_data)
     model = StringIO()
 
     _write_cards_on_model(parsed_data.cells, model)
@@ -41,12 +40,3 @@ def _write_cards_on_model(card_dictionary: dict[int, str], model: TextIO) -> Non
     card_ids = sorted(card_dictionary.keys())
     for card_id in card_ids:
         model.write(card_dictionary[card_id])
-
-
-def _trigger_warnings(parsed_blocks: ParsedBlocks) -> None:
-    if not parsed_blocks.source:
-        logging.warning("No source included in the model!")
-    if len(parsed_blocks.materials) == 0:
-        logging.warning("No materials included in the model!")
-    if len(parsed_blocks.cells) == 0:
-        logging.warning("No cells included in the model!")

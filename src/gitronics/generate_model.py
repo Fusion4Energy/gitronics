@@ -12,6 +12,8 @@ import yaml
 
 from gitronics.compose_model import compose_model
 from gitronics.file_readers import ParsedBlocks, read_files
+from gitronics.helpers import GitronicsError
+from gitronics.project_checker import ProjectChecker
 from gitronics.project_manager import ProjectManager
 
 
@@ -22,6 +24,8 @@ class _ModelManager:
         self.project_manager = ProjectManager(root_folder_path)
         self.config = self.project_manager.read_configuration(configuration_name)
         self.write_path = write_path
+
+        ProjectChecker(self.project_manager).check_configuration(self.config)
 
     def generate_model(self) -> None:
         file_paths_to_include = self.project_manager.get_included_paths(self.config)
@@ -46,15 +50,6 @@ class _ModelManager:
             if not filler_name:
                 continue
 
-            # Search for the placeholder in the envelope structure
-            placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n"
-            if not re.search(placeholder, text):
-                raise ValueError(
-                    f"Envelope name {envelope_name} not found in envelope "
-                    f"structure. The pattern $ FILL = {envelope_name} does not"
-                    " appear in the envelope structure MCNP file."
-                )
-
             # Create the fill card
             universe_id = self.project_manager.get_universe_id(filler_name)
             transform = self.project_manager.get_transformation(
@@ -71,6 +66,7 @@ class _ModelManager:
             fill_card += f"\n           $ {envelope_name} \n"
 
             # Modify the text
+            placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n"
             text = re.sub(placeholder, fill_card, text)
 
         # Update the ParsedBlocks with the new text for the envelope structure
@@ -84,7 +80,7 @@ class _ModelManager:
                 match_first_cell_id = re.match(r"^(\d+)", line)
                 if match_first_cell_id:
                     return int(match_first_cell_id.group(1))
-        raise ValueError(f"Could not find the first cell ID in {path}.")
+        raise GitronicsError(f"Could not find the first cell ID in {path}.")
 
     def _dump_metadata(self) -> None:
         with open(

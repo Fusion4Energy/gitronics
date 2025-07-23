@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 
-from gitronics.compose_model import _trigger_warnings, compose_model
+from gitronics.compose_model import compose_model
 from gitronics.file_readers import ParsedBlocks
 
 PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structure"
@@ -11,63 +11,6 @@ PROJECT_PATH = Path(__file__).resolve().parents[1] / "tests" / "example_structur
 def test_compose_model():
     text_result = compose_model(BLOCKS)
     assert text_result == EXPECTED_TEXT
-
-
-def test_trigger_warnings_no_source(caplog):
-    blocks = ParsedBlocks(
-        cells={1: "cell"},
-        surfaces={1: "surf"},
-        tallies={},
-        materials={1: "mat"},
-        transforms={},
-        source="",
-    )
-    with caplog.at_level(logging.WARNING):
-        _trigger_warnings(blocks)
-    assert "No source included in the model!" in caplog.text
-
-
-def test_trigger_warnings_no_materials(caplog):
-    blocks = ParsedBlocks(
-        cells={1: "cell"},
-        surfaces={1: "surf"},
-        tallies={},
-        materials={},
-        transforms={},
-        source="src",
-    )
-    with caplog.at_level(logging.WARNING):
-        _trigger_warnings(blocks)
-    assert "No materials included in the model!" in caplog.text
-
-
-def test_trigger_warnings_no_cells(caplog):
-    blocks = ParsedBlocks(
-        cells={},
-        surfaces={1: "surf"},
-        tallies={},
-        materials={1: "mat"},
-        transforms={},
-        source="src",
-    )
-    with caplog.at_level(logging.WARNING):
-        _trigger_warnings(blocks)
-    assert "No cells included in the model!" in caplog.text
-
-
-def test_trigger_warnings_all_present(caplog):
-    blocks = ParsedBlocks(
-        cells={1: "cell"},
-        surfaces={1: "surf"},
-        tallies={},
-        materials={1: "mat"},
-        transforms={},
-        source="src",
-    )
-    with caplog.at_level(logging.WARNING):
-        _trigger_warnings(blocks)
-    # Should not log any warnings
-    assert caplog.text == ""
 
 
 BLOCKS = ParsedBlocks(

@@ -1,29 +1,28 @@
 from pathlib import Path
 
-ALLOWED_SUFFIXES = {".mcnp", ".transform", ".mat", ".source", ".tally", ".yaml", ".yml"}
+from gitronics.helpers import ALLOWED_SUFFIXES
 
 
-def get_file_paths(project_root: Path) -> dict[str, Path]:
-    if not project_root.exists() or not project_root.is_dir():
-        raise FileNotFoundError(f"The directory {project_root} does not exist.")
+def discover_file_paths(project_root: Path) -> dict[str, Path]:
+    all_paths = get_all_file_paths(project_root)
 
-    # Get all file paths
+    # Build dictionary while checking for duplicates and that metadata exists
+    valid_suffix_paths = {}
+    for path in all_paths:
+        if path.suffix in ALLOWED_SUFFIXES:
+            file_name = path.stem
+            valid_suffix_paths[file_name] = path
+            
+    return valid_suffix_paths
+
+
+def get_all_file_paths(project_root: Path) -> list[Path]:
+    """
+    Gets all the file paths in the project, including non-allowed suffixes.
+    """
     paths_list = []
     for file in project_root.rglob("*"):
         if file.is_file():
             paths_list.append(file.resolve())
 
-    # Build dictionary while checking for duplicates and that metadata exists
-    file_paths = {}
-    for path in paths_list:
-        if path.suffix in ALLOWED_SUFFIXES:
-            file_name = path.stem
-            if file_name in file_paths:
-                raise ValueError(f"Duplicate file name found: {file_name}")
-            file_paths[file_name] = path
-            if not path.with_suffix(".metadata").exists() and path.suffix == ".mcnp":
-                raise FileNotFoundError(f"Metadata file not found for: {path}")
-        elif path.suffix == ".metadata":
-            continue
-
-    return file_paths
+    return paths_list

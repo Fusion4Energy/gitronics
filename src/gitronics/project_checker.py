@@ -3,12 +3,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from gitronics.helpers import Config
+from gitronics.file_discovery import get_all_file_paths
+from gitronics.helpers import ALLOWED_SUFFIXES, Config, GitronicsError
+from gitronics.project_manager import ProjectManager
 
 
 @dataclass
 class ProjectChecker:
-    file_paths: dict[str, Path]
+    project_manager: ProjectManager
 
     # @classmethod
     # def check_project(cls):
@@ -30,67 +32,112 @@ class ProjectChecker:
 
     def check_configuration(self, config: Config) -> None:
         logging.info("Checking project configuration.")
+        self._check_files_in_the_project()
         self._check_envelope_structure(config)
-        self._check_envelopes(config)
+        self._check_envelopes_and_fillers(config)
         self._check_source(config)
         self._check_tallies(config)
         self._check_materials(config)
         self._check_transforms(config)
+        self._trigger_warnings(config)
+
+    def _check_files_in_the_project(self) -> None:
+        """Checks that the files have no duplicate names and that the metadata files
+        exist for MCNP files."""
+        project_root = self.project_manager.project_root
+
+        all_paths = get_all_file_paths(project_root)
+        names = []
+        for path in all_paths:
+            if path.suffix not in ALLOWED_SUFFIXES:
+                continue
+            name = path.stem
+            if name in names:
+                raise GitronicsError(f"Duplicate file name found: {name}")
+            names.append(name)
+            if path.suffix == ".mcnp" and not path.with_suffix(".metadata").exists():
+                raise GitronicsError(f"Metadata file not found for: {path}")
 
     def _check_envelope_structure(self, config: Config) -> None:
+        """Checks that the envelope structure is defined in the configuration and that
+        it exists."""
         if not config.envelope_structure:
-            raise ValueError("Envelope structure is not defined in the configuration.")
-        if config.envelope_structure not in self.file_paths:
-            raise ValueError(
+            raise GitronicsError(
+                "Envelope structure is not defined in the configuration."
+            )
+        if config.envelope_structure not in self.project_manager.file_paths:
+            raise GitronicsError(
                 f"Envelope structure file {config.envelope_structure} not found "
                 "in the project."
             )
 
-    def _check_envelopes(self, config: Config) -> None:
+    def _check_envelopes_and_fillers(self, config: Config) -> None:
+        """Checks that, if there is an envelopes field, all the envelopes appear in the
+        envelope structure, that all the fillers exist and that their metadata includes
+        the necessary transformation."""
         if not config.envelopes:
             return
 
-        for filler_name in config.envelopes.values():
-            if not filler_name:
-                continue
-            if filler_name not in self.file_paths:
-                raise ValueError(f"Filler file {filler_name} not found in the project.")
-
-        envelope_structure_path = self.file_paths[config.envelope_structure]
+        envelope_structure_path = self.project_manager.file_paths[
+            config.envelope_structure
+        ]
         with open(envelope_structure_path, encoding="utf-8") as infile:
             text = infile.read()
-        for envelope_name in config.envelopes:
+        for envelope_name, filler_name in config.envelopes.items():
             placeholder_pat = re.compile(rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n")
             if not placeholder_pat.search(text):
-                raise ValueError(
+                raise GitronicsError(
                     f"Envelope {envelope_name} not found in the envelope structure."
+                )
+
+            if not filler_name:
+                continue
+            if filler_name not in self.project_manager.file_paths:
+                raise GitronicsError(
+                    f"Filler file {filler_name} not found in the project."
+                )
+            metadata = self.project_manager.get_metadata(filler_name)
+            try:
+                metadata["transformations"][envelope_name]
+            except (KeyError, TypeError):
+                raise GitronicsError(
+                    f"Transformation for envelope {envelope_name} not found in filler"
+                    f" model {filler_name} metadata."
                 )
 
     def _check_source(self, config: Config) -> None:
         if config.source:
-            if config.source not in self.file_paths:
-                raise ValueError(
+            if config.source not in self.project_manager.file_paths:
+                raise GitronicsError(
                     f"Source file {config.source} not found in the project."
                 )
 
     def _check_tallies(self, config: Config) -> None:
         if config.tallies:
             for tally in config.tallies:
-                if tally not in self.file_paths:
-                    raise ValueError(f"Tally file {tally} not found in the project.")
+                if tally not in self.project_manager.file_paths:
+                    raise GitronicsError(
+                        f"Tally file {tally} not found in the project."
+                    )
 
     def _check_materials(self, config: Config) -> None:
         if config.materials:
             for material in config.materials:
-                if material not in self.file_paths:
-                    raise ValueError(
+                if material not in self.project_manager.file_paths:
+                    raise GitronicsError(
                         f"Material file {material} not found in the project."
                     )
 
     def _check_transforms(self, config: Config) -> None:
         if config.transforms:
             for transform in config.transforms:
-                if transform not in self.file_paths:
-                    raise ValueError(
+                if transform not in self.project_manager.file_paths:
+                    raise GitronicsError(
                         f"Transform file {transform} not found in the project."
                     )
+
+    def _trigger_warnings(self, config: Config) -> None:
+        if not config.source:
+            logging.warning("No source included in the configuration!")
+        if not config.materials or len(config.materials) == 0:
+            logging.warning("No materials included in the configuration!")

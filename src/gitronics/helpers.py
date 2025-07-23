@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+ALLOWED_SUFFIXES = {".mcnp", ".transform", ".mat", ".source", ".tally", ".yaml", ".yml"}
+
 
 @dataclass
 class Config:
@@ -10,3 +12,9 @@ class Config:
     tallies: list[str] | None
     materials: list[str] | None
     transforms: list[str] | None
+
+
+class GitronicsError(Exception):
+    """Base class for all Gitronics exceptions."""
+
+    pass

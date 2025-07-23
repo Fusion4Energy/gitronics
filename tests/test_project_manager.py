@@ -2,9 +2,15 @@ from pathlib import Path
 
 import pytest
 
+from gitronics.helpers import GitronicsError
 from gitronics.project_manager import ProjectManager
 
 VALID_PROJECT_PATH = Path(__file__).parent / "test_resources" / "valid_project"
+
+
+def test_check_configuration_wrong_root():
+    with pytest.raises(GitronicsError, match="The directory .* does not exist."):
+        ProjectManager(Path("/wrong/root"))
 
 
 def test_read_configuration_valid():
@@ -40,7 +46,7 @@ def test_read_configuration_overrides():
 
 def test_read_configuration_not_found():
     project_manager = ProjectManager(VALID_PROJECT_PATH)
-    with pytest.raises(ValueError, match="Configuration file .* not found."):
+    with pytest.raises(GitronicsError, match="Configuration file .* not found."):
         project_manager.read_configuration("non_existent_configuration")
 
 
@@ -76,10 +82,16 @@ def test_get_metadata():
     assert metadata["transformations"]["my_envelope_name_1"] == "*(10)"
 
 
+def test_get_metadata_file_not_in_project():
+    project_manager = ProjectManager(VALID_PROJECT_PATH)
+    with pytest.raises(GitronicsError, match="File .* not found in the project."):
+        project_manager.get_metadata("wrong")
+
+
 def test_get_metadata_file_not_found():
     project_manager = ProjectManager(VALID_PROJECT_PATH)
-    with pytest.raises(ValueError, match="File .* not found in the project."):
-        project_manager.get_metadata("wrong")
+    with pytest.raises(GitronicsError, match="Metadata file not found for .*"):
+        project_manager.get_metadata("volumetric_source")
 
 
 def test_get_transformation():
@@ -88,15 +100,6 @@ def test_get_transformation():
         "filler_model_1", "my_envelope_name_1"
     )
     assert transformation == "*(10)"
-
-
-def test_get_transformation_not_found():
-    project_manager = ProjectManager(VALID_PROJECT_PATH)
-    with pytest.raises(
-        ValueError,
-        match="Transformation for envelope .* not found in filler model .* metadata.",
-    ):
-        project_manager.get_transformation("filler_model_1", "non_existent_envelope")
 
 
 def test_get_universe_id():
@@ -108,5 +111,7 @@ def test_get_universe_id():
 
 def test_get_universe_id_not_found():
     project_manager = ProjectManager(VALID_PROJECT_PATH)
-    with pytest.raises(ValueError, match="Universe ID not found in filler model .*"):
+    with pytest.raises(
+        GitronicsError, match="Universe ID not found in filler model .*"
+    ):
         project_manager.get_universe_id("envelope_structure")
