@@ -24,7 +24,7 @@ class _ModelManager:
         self.project_manager = ProjectManager(root_folder_path)
         self.config = self.project_manager.read_configuration(configuration_name)
         self.write_path = write_path
-
+        # TODO: reall all metadata into a dictionary for efficiency                       ...
         ProjectChecker(self.project_manager).check_configuration(self.config)
 
     def generate_model(self) -> None:
@@ -32,11 +32,15 @@ class _ModelManager:
         parsed_blocks = read_files(file_paths_to_include)
         self._fill_envelope_cards(parsed_blocks)
         text = compose_model(parsed_blocks)
-        with open(self.write_path / "assembled.mcnp", "w", encoding="utf-8") as infile:
+        with open(
+            self.write_path / "assembled.mcnp", "w", encoding="utf-8-sig"
+        ) as infile:
             infile.write(text)
         self._dump_metadata()
 
     def _fill_envelope_cards(self, parsed_blocks: ParsedBlocks) -> None:
+        # TODO: build a dict[envelope_name, fill_card_text] and then replace line by line
+        # this makes the loop go from 67s to 0.2s in elite
         logging.info("Preparing FILL cards in the envelope structure.")
         envelope_structure_id = self._get_envelope_structure_first_cell_id()
         text = parsed_blocks.cells[envelope_structure_id]

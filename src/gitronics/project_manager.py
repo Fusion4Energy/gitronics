@@ -1,4 +1,5 @@
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ class ProjectManager:
     def __init__(self, project_root: Path):
         if not project_root.exists() or not project_root.is_dir():
             raise GitronicsError(f"The directory {project_root} does not exist.")
-        
+
         self.project_root = project_root
         self.file_paths = discover_file_paths(project_root)
 
@@ -26,6 +27,7 @@ class ProjectManager:
         self._include_transforms(paths, config)
         return paths
 
+    @lru_cache(maxsize=1000)
     def get_metadata(self, name: str) -> dict[str, Any]:
         if name not in self.file_paths:
             raise GitronicsError(f"File {name} not found in the project.")
