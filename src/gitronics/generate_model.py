@@ -16,6 +16,8 @@ from gitronics.helpers import GitronicsError
 from gitronics.project_checker import ProjectChecker
 from gitronics.project_manager import ProjectManager
 
+PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
+
 
 class _ModelManager:
     def __init__(
@@ -49,6 +51,7 @@ class _ModelManager:
             logging.info("No envelopes to fill, skipping FILL cards.")
             return
 
+        fill_cards = {}
         for envelope_name, filler_name in self.config.envelopes.items():
             # If the envelope is left empty in the configuration do not fill
             if not filler_name:
@@ -68,10 +71,19 @@ class _ModelManager:
             else:
                 fill_card = f" FILL = {universe_id} "
             fill_card += f"\n           $ {envelope_name} \n"
+            fill_cards[envelope_name] = fill_card
 
-            # Modify the text
-            placeholder = rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n"
-            text = re.sub(placeholder, fill_card, text)
+        # Modify the text
+        lines = text.splitlines(keepends=True)
+        for i, line in enumerate(lines):
+            match_placeholder = PLACEHOLDER_PAT.search(line)
+            if match_placeholder:
+                envelope_name = match_placeholder.group(1)
+                if envelope_name in fill_cards:
+                    lines[i] = re.sub(
+                        PLACEHOLDER_PAT, fill_cards[envelope_name], lines[i]
+                    )
+        text = "".join(lines)
 
         # Update the ParsedBlocks with the new text for the envelope structure
         parsed_blocks.cells[envelope_structure_id] = text
