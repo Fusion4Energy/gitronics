@@ -5,6 +5,7 @@ to generate the MCNP model.
 
 import logging
 import re
+from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class _ModelManager:
         self, root_folder_path: Path, configuration_name: str, write_path: Path
     ):
         self.project_manager = ProjectManager(root_folder_path)
+        self.config_name = configuration_name
         self.config = self.project_manager.read_configuration(configuration_name)
         self.write_path = write_path
         # TODO: reall all metadata into a dictionary for efficiency                       ...
@@ -103,9 +105,11 @@ class _ModelManager:
             self.write_path / "assembled.metadata", "w", encoding="utf-8"
         ) as infile:
             metadata = {
+                "configuration_name": self.config_name,
                 "gitronics_version": version("gitronics"),
+                "build_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
-            yaml.dump(metadata, infile, default_flow_style=False)
+            yaml.dump(metadata, infile, default_flow_style=False, sort_keys=False)
 
 
 def generate_model(

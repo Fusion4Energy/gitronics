@@ -103,7 +103,9 @@ class ProjectChecker:
         )
         if empty_envelopes:
             logging.warning(
-                "There are %d empty envelopes in the structure.", len(empty_envelopes)
+                "There are empty envelopes in the structure not accounted for in the "
+                "configuration: %d",
+                empty_envelopes,
             )
 
     def _check_fillers(self, config: Config) -> None:
