@@ -44,6 +44,7 @@ class ProjectManager:
         metadata = self.get_metadata(filler_name)
         return metadata["transformations"][envelope_name]
 
+    @lru_cache(maxsize=1000)
     def get_universe_id(self, filler_name: str) -> int:
         """Returns the universe ID of the filler model."""
         filler_path = self.file_paths[filler_name]

@@ -1,11 +1,12 @@
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
 from gitronics.file_discovery import get_all_file_paths
 from gitronics.helpers import ALLOWED_SUFFIXES, Config, GitronicsError
 from gitronics.project_manager import ProjectManager
+
+PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
 
 
 @dataclass
@@ -34,7 +35,8 @@ class ProjectChecker:
         logging.info("Checking project configuration.")
         self._check_files_in_the_project()
         self._check_envelope_structure(config)
-        self._check_envelopes_and_fillers(config)
+        self._check_envelopes(config)
+        self._check_fillers(config)
         self._check_source(config)
         self._check_tallies(config)
         self._check_materials(config)
@@ -71,10 +73,10 @@ class ProjectChecker:
                 "in the project."
             )
 
-    def _check_envelopes_and_fillers(self, config: Config) -> None:
+    def _check_envelopes(self, config: Config) -> None:
         """Checks that, if there is an envelopes field, all the envelopes appear in the
-        envelope structure, that all the fillers exist and that their metadata includes
-        the necessary transformation."""
+        envelope structure. Prints a warning if there are envelopes that do not appear
+        in the configuration."""
         if not config.envelopes:
             return
 
@@ -83,13 +85,31 @@ class ProjectChecker:
         ]
         with open(envelope_structure_path, encoding="utf-8") as infile:
             text = infile.read()
-        for envelope_name, filler_name in config.envelopes.items():
-            placeholder_pat = re.compile(rf"\$\s+FILL\s*=\s*{envelope_name}\s*\n")
-            if not placeholder_pat.search(text):
+        envelope_names_in_structure = set()
+        for line in text.splitlines():
+            placeholder_match = PLACEHOLDER_PAT.search(line)
+            if placeholder_match:
+                envelope_name = placeholder_match.group(1)
+                envelope_names_in_structure.add(envelope_name)
+
+        for envelope_name in config.envelopes.keys():
+            if envelope_name not in envelope_names_in_structure:
                 raise GitronicsError(
                     f"Envelope {envelope_name} not found in the envelope structure."
                 )
 
+        empty_envelopes = envelope_names_in_structure.difference(
+            config.envelopes.keys()
+        )
+        if empty_envelopes:
+            logging.warning(
+                "There are %d empty envelopes in the structure.", len(empty_envelopes)
+            )
+
+    def _check_fillers(self, config: Config) -> None:
+        """Check that all the fillers exist and that their metadata includes the
+        necessary transformation."""
+        for envelope_name, filler_name in config.envelopes.items():
             if not filler_name:
                 continue
             if filler_name not in self.project_manager.file_paths:
