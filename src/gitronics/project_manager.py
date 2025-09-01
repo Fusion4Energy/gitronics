@@ -10,6 +10,8 @@ from gitronics.helpers import Config, GitronicsError
 
 
 class ProjectManager:
+    """Handles the file paths, metadata and configurations of the project."""
+
     def __init__(self, project_root: Path):
         if not project_root.exists() or not project_root.is_dir():
             raise GitronicsError(f"The directory {project_root} does not exist.")
@@ -42,7 +44,9 @@ class ProjectManager:
 
     def get_transformation(self, filler_name: str, envelope_name: str) -> str | None:
         metadata = self.get_metadata(filler_name)
-        return metadata["transformations"][envelope_name]
+        transformation = metadata["transformations"][envelope_name]
+        assert isinstance(transformation, str) or transformation is None
+        return transformation
 
     @lru_cache(maxsize=1000)
     def get_universe_id(self, filler_name: str) -> int:

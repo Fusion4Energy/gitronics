@@ -32,6 +32,9 @@ class ProjectChecker:
     #     pass
 
     def check_configuration(self, config: Config) -> None:
+        """Checks all the required files, names and metadata related to a specific
+        configuration within the project.
+        """
         logging.info("Checking project configuration.")
         self._check_files_in_the_project()
         self._check_envelope_structure(config)

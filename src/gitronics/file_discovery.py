@@ -12,7 +12,7 @@ def discover_file_paths(project_root: Path) -> dict[str, Path]:
         if path.suffix in ALLOWED_SUFFIXES:
             file_name = path.stem
             valid_suffix_paths[file_name] = path
-            
+
     return valid_suffix_paths
 
 

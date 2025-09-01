@@ -16,5 +16,3 @@ class Config:
 
 class GitronicsError(Exception):
     """Base class for all Gitronics exceptions."""
-
-    pass
