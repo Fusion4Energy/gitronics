@@ -15,7 +15,7 @@ authors = [
 description = "Automatically build an MCNP from a set of files."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["PyYAML"]
+dependencies = ["PyYAML", "polars", "xlsxwriter"]
 
 [project.optional-dependencies]
 tests = ["pytest", "pytest-cov", "mypy", "pylint", "types-PyYAML"]

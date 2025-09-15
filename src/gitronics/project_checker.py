@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
+from xlsxwriter import Workbook
 
 from gitronics.file_discovery import get_all_file_paths
 from gitronics.helpers import ALLOWED_SUFFIXES, TYPE_BY_SUFFIX, Config, GitronicsError
@@ -12,9 +13,9 @@ from gitronics.project_manager import ProjectManager
 PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
 
 
-class NewProjectChecker:
-    def __init__(self, project_manager: ProjectManager):
-        self.project_manager = project_manager
+@dataclass
+class ProjectChecker:
+    project_manager: ProjectManager
 
     def check_project(self):
         """Checks the whole project for potential issues and creates a summary with
@@ -23,9 +24,29 @@ class NewProjectChecker:
         self._check_no_duplicate_names(file_paths)
         self._check_metadata_files_exist_for_mcnp_models(file_paths)
         self._create_project_summary(file_paths)
+        self.check_all_configurations(file_paths)
 
-        # Check all configurations in the project
-        pass
+    def check_all_configurations(self, paths: list[Path]):
+        """Check all the configurations found in the project (files with .yaml or .yml
+        suffix)."""
+        configuration_files = [
+            path for path in paths if path.suffix in {".yaml", ".yml"}
+        ]
+        for config_path in configuration_files:
+            configuration_name = config_path.stem
+            config = self.project_manager.read_configuration(configuration_name)
+            self.check_configuration(config)
+
+    def check_configuration(self, config: Config):
+        self._check_envelope_structure(config)
+        self._check_envelopes(config)
+        self._check_fillers(config)
+        self._check_source(config)
+        self._check_tallies(config)
+        self._check_materials(config)
+        self._check_transforms(config)
+        self._trigger_warnings(config)
+        self._create_configuration_summary(config)
 
     def _get_file_paths(self) -> list[Path]:
         paths = []
@@ -63,68 +84,6 @@ class NewProjectChecker:
 
         dataframe = pl.DataFrame(data).sort(["Type", "Path", "Name"])
         dataframe.write_csv(self.project_manager.project_root / "project_summary.csv")
-
-    def check_configuration(self, config: Config):
-        # Check that the envelope structure is defined and that it exists
-
-        # Check that all the envelopes appear in the envelope structure (if there is
-        # an envelopes field). Print a warning if there are envelopes that do not
-        # appear in the configuration.
-
-        # Check that all the fillers exist and that their metadata includes the
-        # necessary transformation.
-
-        # Check that the source file exists (if defined)
-
-        # Check that the tally files exist (if defined)
-
-        # Check that the material files exist (if defined)
-
-        # Check that the transform files exist (if defined)
-
-        # Trigger warnings
-
-        # Create summary of the configuration: one sheet with envelope_name,
-        # filler_name, transformation, universe_id... Other sheet with all the other
-        # files included in the configuration.
-        pass
-
-
-@dataclass
-class ProjectChecker:
-    project_manager: ProjectManager
-
-    def check_configuration(self, config: Config) -> None:
-        """Checks all the required files, names and metadata related to a specific
-        configuration within the project.
-        """
-        logging.info("Checking project configuration.")
-        self._check_files_in_the_project()
-        self._check_envelope_structure(config)
-        self._check_envelopes(config)
-        self._check_fillers(config)
-        self._check_source(config)
-        self._check_tallies(config)
-        self._check_materials(config)
-        self._check_transforms(config)
-        self._trigger_warnings(config)
-
-    def _check_files_in_the_project(self) -> None:
-        """Checks that the files have no duplicate names and that the metadata files
-        exist for MCNP files."""
-        project_root = self.project_manager.project_root
-
-        all_paths = get_all_file_paths(project_root)
-        names = []
-        for path in all_paths:
-            if path.suffix not in ALLOWED_SUFFIXES:
-                continue
-            name = path.stem
-            if name in names:
-                raise GitronicsError(f"Duplicate file name found: {name}")
-            names.append(name)
-            if path.suffix == ".mcnp" and not path.with_suffix(".metadata").exists():
-                raise GitronicsError(f"Metadata file not found for: {path}")
 
     def _check_envelope_structure(self, config: Config) -> None:
         """Checks that the envelope structure is defined in the configuration and that
@@ -194,6 +153,7 @@ class ProjectChecker:
                 )
 
     def _check_source(self, config: Config) -> None:
+        """Check that the source file exists (if defined)."""
         if config.source:
             if config.source not in self.project_manager.file_paths:
                 raise GitronicsError(
@@ -201,6 +161,7 @@ class ProjectChecker:
                 )
 
     def _check_tallies(self, config: Config) -> None:
+        """Check that the tally files exist (if defined)."""
         if config.tallies:
             for tally in config.tallies:
                 if tally not in self.project_manager.file_paths:
@@ -209,6 +170,7 @@ class ProjectChecker:
                     )
 
     def _check_materials(self, config: Config) -> None:
+        """Check that the material files exist (if defined)."""
         if config.materials:
             for material in config.materials:
                 if material not in self.project_manager.file_paths:
@@ -217,6 +179,7 @@ class ProjectChecker:
                     )
 
     def _check_transforms(self, config: Config) -> None:
+        """Check that the transform files exist (if defined)."""
         if config.transforms:
             for transform in config.transforms:
                 if transform not in self.project_manager.file_paths:
@@ -229,3 +192,61 @@ class ProjectChecker:
             logging.warning("No source included in the configuration!")
         if not config.materials or len(config.materials) == 0:
             logging.warning("No materials included in the configuration!")
+
+    def _create_configuration_summary(self, config: Config) -> None:
+        """Creates an Excel sheet with a summary of the configuration."""
+        table_configuration_and_structure = [
+            {"Type": "Configuration", "Name": config.name},
+            {"Type": "Envelope Structure", "Name": config.envelope_structure},
+        ]
+
+        table_envelopes = []
+        if config.envelopes:
+            for envelope_name, filler_name in config.envelopes.items():
+                table_envelopes.append(
+                    {"Envelope": envelope_name, "Filler": filler_name}
+                )
+
+        table_data_files = []
+        if config.source:
+            table_data_files.append({"Type": "Source", "Name": config.source})
+        if config.tallies:
+            for tally in config.tallies:
+                table_data_files.append({"Type": "Tally", "Name": tally})
+        if config.materials:
+            for material in config.materials:
+                table_data_files.append({"Type": "Material", "Name": material})
+        if config.transforms:
+            for transform in config.transforms:
+                table_data_files.append({"Type": "Transform", "Name": transform})
+        dataframe_configuration_and_structure = pl.DataFrame(
+            table_configuration_and_structure
+        )
+        dataframe_envelopes = pl.DataFrame(table_envelopes)
+        dataframe_data_files = pl.DataFrame(table_data_files).sort(["Type", "Name"])
+
+        with Workbook(self.project_manager.project_root / "summary.xlsx") as workbook:
+            dataframe_configuration_and_structure.write_excel(
+                workbook,
+                worksheet=config.name,
+                position=(0, 0),
+                autofit=True,
+                header_format={"bold": True},
+            )
+            dataframe_envelopes.write_excel(
+                workbook,
+                worksheet=config.name,
+                position=(4, 0),
+                autofit=True,
+                header_format={"bold": True},
+            )
+            dataframe_data_files.write_excel(
+                workbook,
+                worksheet=config.name,
+                position=(
+                    4,
+                    dataframe_envelopes.width + 1,
+                ),
+                autofit=True,
+                header_format={"bold": True},
+            )

@@ -31,17 +31,19 @@ def test_duplicate_file_names():
         PATH_TEST_RESOURCES / "duplicated_filename_project"
     )
     project_checker = ProjectChecker(project_manager)
+    file_paths = project_checker._get_file_paths()
     with pytest.raises(
         GitronicsError, match="Duplicate file name found: duplicated_name"
     ):
-        project_checker._check_files_in_the_project()
+        project_checker._check_no_duplicate_names(file_paths)
 
 
 def test_missing_metadata_in_mcnp_file():
     project_manager = ProjectManager(PATH_TEST_RESOURCES / "missing_metadata_project")
     project_checker = ProjectChecker(project_manager)
+    file_paths = project_checker._get_file_paths()
     with pytest.raises(GitronicsError, match="Metadata file not found for: .*"):
-        project_checker._check_files_in_the_project()
+        project_checker._check_metadata_files_exist_for_mcnp_models(file_paths)
 
 
 def test_check_configuration_env_struct_not_defined(project_manager, project_checker):

@@ -15,6 +15,7 @@ TYPE_BY_SUFFIX = {
 
 @dataclass
 class Config:
+    name: str
     overrides: str | None
     envelope_structure: str
     envelopes: dict[str, str]

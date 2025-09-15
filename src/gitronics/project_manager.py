@@ -68,6 +68,7 @@ class ProjectManager:
             conf_dict = yaml.safe_load(infile)
 
         configuration = Config(
+            name=configuration_name,
             overrides=conf_dict.get("overrides"),
             envelope_structure=conf_dict.get("envelope_structure"),
             envelopes=conf_dict.get("envelopes", {}),
