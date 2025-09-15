@@ -1,10 +1,10 @@
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
-from xlsxwriter import Workbook
+from xlsxwriter import Workbook  # type: ignore
 
 from gitronics.file_discovery import get_all_file_paths
 from gitronics.helpers import ALLOWED_SUFFIXES, TYPE_BY_SUFFIX, Config, GitronicsError
@@ -20,10 +20,10 @@ class ConfigSummaryTables:
     data_files: pl.DataFrame
 
 
+@dataclass
 class SummaryData:
-    def __init__(self):
-        self.all_files_info: pl.DataFrame | None = None
-        self.configuration_summaries: dict[str, ConfigSummaryTables] = {}
+    all_files_info: pl.DataFrame | None = None
+    config_summaries: dict[str, ConfigSummaryTables] = field(default_factory=dict)
 
 
 class ProjectChecker:
@@ -31,7 +31,7 @@ class ProjectChecker:
         self.project_manager = project_manager
         self.summary_data = SummaryData()
 
-    def check_project(self):
+    def check_project(self) -> None:
         """Checks the whole project for potential issues and creates a summary with
         all the files. It also checks the validity of all the configurations."""
         logging.info(
@@ -45,7 +45,7 @@ class ProjectChecker:
         self._check_all_configurations(file_paths)
         self._write_excel_summary()
 
-    def _check_all_configurations(self, paths: list[Path]):
+    def _check_all_configurations(self, paths: list[Path]) -> None:
         """Check all the configurations found in the project (files with .yaml or .yml
         suffix)."""
         configuration_files = [
@@ -56,7 +56,7 @@ class ProjectChecker:
             config = self.project_manager.read_configuration(configuration_name)
             self.check_configuration(config)
 
-    def check_configuration(self, config: Config):
+    def check_configuration(self, config: Config) -> None:
         logging.info("Checking configuration: %s", config.name)
         self._check_envelope_structure(config)
         self._check_envelopes(config)
@@ -239,7 +239,7 @@ class ProjectChecker:
         if config.transforms:
             for transform in config.transforms:
                 table_data_files.append({"Type": "Transform", "Name": transform})
-        self.summary_data.configuration_summaries[config.name] = ConfigSummaryTables(
+        self.summary_data.config_summaries[config.name] = ConfigSummaryTables(
             pl.DataFrame(table_configuration_and_structure),
             pl.DataFrame(table_envelopes),
             pl.DataFrame(table_data_files),
@@ -256,7 +256,7 @@ class ProjectChecker:
                     header_format={"bold": True},
                 )
 
-            for conf_name, tables in self.summary_data.configuration_summaries.items():
+            for conf_name, tables in self.summary_data.config_summaries.items():
                 tables.configuration_and_structure.write_excel(
                     workbook,
                     worksheet=conf_name,
