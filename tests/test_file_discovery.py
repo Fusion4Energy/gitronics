@@ -1,12 +1,12 @@
 from pathlib import Path
 
-from gitronics.file_discovery import discover_file_paths
+from gitronics.file_discovery import get_valid_file_paths
 
 PATH_TEST_RESOURCES = Path(__file__).parent / "test_resources"
 
 
 def test_discover_file_paths():
-    file_paths = discover_file_paths(PATH_TEST_RESOURCES / "valid_project")
+    file_paths = get_valid_file_paths(PATH_TEST_RESOURCES / "valid_project")
     assert {
         "fine_mesh",
         "materials",

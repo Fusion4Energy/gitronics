@@ -3,10 +3,11 @@ from pathlib import Path
 from gitronics.helpers import ALLOWED_SUFFIXES
 
 
-def discover_file_paths(project_root: Path) -> dict[str, Path]:
+def get_valid_file_paths(project_root: Path) -> dict[str, Path]:
+    """Gets all the file paths with allowed suffixes in the project as a dictionary
+    `name: path`."""
     all_paths = get_all_file_paths(project_root)
 
-    # Build dictionary while checking for duplicates and that metadata exists
     valid_suffix_paths = {}
     for path in all_paths:
         if path.suffix in ALLOWED_SUFFIXES:

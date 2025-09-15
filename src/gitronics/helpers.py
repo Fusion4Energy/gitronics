@@ -2,6 +2,16 @@ from dataclasses import dataclass
 
 ALLOWED_SUFFIXES = {".mcnp", ".transform", ".mat", ".source", ".tally", ".yaml", ".yml"}
 
+TYPE_BY_SUFFIX = {
+    ".mcnp": "Geometry",
+    ".transform": "Transform",
+    ".mat": "Material",
+    ".source": "Source",
+    ".tally": "Tally",
+    ".yaml": "Configuration",
+    ".yml": "Configuration",
+}
+
 
 @dataclass
 class Config:

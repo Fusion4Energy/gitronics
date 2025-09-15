@@ -1,9 +1,12 @@
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+import polars as pl
 
 from gitronics.file_discovery import get_all_file_paths
-from gitronics.helpers import ALLOWED_SUFFIXES, Config, GitronicsError
+from gitronics.helpers import ALLOWED_SUFFIXES, TYPE_BY_SUFFIX, Config, GitronicsError
 from gitronics.project_manager import ProjectManager
 
 PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
@@ -14,15 +17,52 @@ class NewProjectChecker:
         self.project_manager = project_manager
 
     def check_project(self):
-        # Check that the files have no duplicate names
-
-        # Check that the metadata files exist for MCNP files
-
-        # Create project summary with all the file names, types, and metadata fields
-        # like description, etc.
+        """Checks the whole project for potential issues and creates a summary with
+        all the files. It also checks the validity of all the configurations."""
+        file_paths = self._get_file_paths()
+        self._check_no_duplicate_names(file_paths)
+        self._check_metadata_files_exist_for_mcnp_models(file_paths)
+        self._create_project_summary(file_paths)
 
         # Check all configurations in the project
         pass
+
+    def _get_file_paths(self) -> list[Path]:
+        paths = []
+        all_file_paths = get_all_file_paths(self.project_manager.project_root)
+        for path in all_file_paths:
+            if path.suffix in ALLOWED_SUFFIXES:
+                paths.append(path)
+        return paths
+
+    def _check_no_duplicate_names(self, paths: list[Path]) -> None:
+        names = set()
+        for path in paths:
+            name = path.stem
+            if name in names:
+                raise GitronicsError(f"Duplicate file name found: {name}")
+            names.add(name)
+
+    def _check_metadata_files_exist_for_mcnp_models(self, paths: list[Path]) -> None:
+        for path in paths:
+            if path.suffix == ".mcnp" and not path.with_suffix(".metadata").exists():
+                raise GitronicsError(f"Metadata file not found for: {path}")
+
+    def _create_project_summary(self, paths: list[Path]) -> None:
+        data = []
+        for path in paths:
+            relative_path = str(
+                path.relative_to(self.project_manager.project_root.absolute()).parent
+            )
+            entry = {
+                "Type": TYPE_BY_SUFFIX[path.suffix],
+                "Name": path.stem,
+                "Path": relative_path,
+            }
+            data.append(entry)
+
+        dataframe = pl.DataFrame(data).sort(["Type", "Path", "Name"])
+        dataframe.write_csv(self.project_manager.project_root / "project_summary.csv")
 
     def check_configuration(self, config: Config):
         # Check that the envelope structure is defined and that it exists
