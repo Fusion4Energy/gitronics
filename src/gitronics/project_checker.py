@@ -31,19 +31,16 @@ class ProjectChecker:
         self.project_manager = project_manager
         self.summary_data = SummaryData()
 
-    def check_project(self) -> None:
+    def check_project(self, write_path: Path) -> None:
         """Checks the whole project for potential issues and creates a summary with
         all the files. It also checks the validity of all the configurations."""
-        logging.info(
-            "Checking the validity of the whole project: %s",
-            self.project_manager.project_root,
-        )
+        logging.info("Checking the validity of the whole project")
         file_paths = self._get_file_paths()
         self._check_no_duplicate_names(file_paths)
         self._check_metadata_files_exist_for_mcnp_models(file_paths)
         self._update_summary_data_with_all_files_info(file_paths)
         self._check_all_configurations(file_paths)
-        self._write_excel_summary()
+        self._write_excel_summary(write_path)
 
     def _check_all_configurations(self, paths: list[Path]) -> None:
         """Check all the configurations found in the project (files with .yaml or .yml
@@ -245,8 +242,8 @@ class ProjectChecker:
             pl.DataFrame(table_data_files),
         )
 
-    def _write_excel_summary(self) -> None:
-        with Workbook(self.project_manager.project_root / "summary.xlsx") as workbook:
+    def _write_excel_summary(self, write_path: Path) -> None:
+        with Workbook(write_path / "summary.xlsx") as workbook:
             if self.summary_data.all_files_info is not None:
                 self.summary_data.all_files_info.write_excel(
                     workbook,

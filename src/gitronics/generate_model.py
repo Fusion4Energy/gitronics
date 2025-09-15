@@ -27,7 +27,7 @@ class _ModelManager:
         self.project_manager = ProjectManager(root_folder_path)
         self.config = self.project_manager.read_configuration(configuration_name)
         self.write_path = write_path
-        ProjectChecker(self.project_manager).check_project()
+        ProjectChecker(self.project_manager).check_project(write_path)
 
     def generate_model(self) -> None:
         logging.info("Generating model for configuration: %s", self.config.name)
@@ -122,6 +122,8 @@ def generate_model(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
+        filename=write_path / "model_generation.log",
+        filemode="w",
     )
     model_manager = _ModelManager(root_folder_path, configuration_name, write_path)
     model_manager.generate_model()
