@@ -105,7 +105,9 @@ class _ModelManager:
 
     def _dump_metadata(self) -> None:
         with open(
-            self.write_path / "assembled.metadata", "w", encoding="utf-8"
+            self.write_path / f"assembled_{self.config.name}.metadata",
+            "w",
+            encoding="utf-8",
         ) as infile:
             metadata = {
                 "configuration_name": self.config.name,

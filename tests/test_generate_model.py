@@ -27,7 +27,7 @@ def test_generate_model(tmpdir):
         assert result_lines[i] == expected_lines[i]
 
     # Check that metadata was generated
-    with open(tmpdir / "assembled.metadata") as infile:
+    with open(tmpdir / "assembled_valid_configuration.metadata") as infile:
         metadata = yaml.safe_load(infile)
     assert "gitronics_version" in metadata
 

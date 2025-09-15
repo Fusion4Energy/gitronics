@@ -4,7 +4,6 @@ This script is used to generate the MCNP model.
 Adapt the PATHS constants to the correct paths.
 """
 
-import logging
 from pathlib import Path
 
 from gitronics import generate_model
