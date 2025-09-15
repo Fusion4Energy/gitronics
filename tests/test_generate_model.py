@@ -14,7 +14,7 @@ def test_generate_model(tmpdir):
         configuration_name="valid_configuration",
         write_path=tmpdir,
     )
-    with open(tmpdir / "assembled.mcnp") as infile:
+    with open(tmpdir / "assembled_valid_configuration.mcnp") as infile:
         result_text = infile.read()
 
     expected_file = TEST_RESOURCES_PATH / "expected_file_valid_configuration.mcnp"
@@ -38,7 +38,7 @@ def test_envelope_left_empty_in_configuration(tmpdir):
         configuration_name="small_override",
         write_path=tmpdir,
     )
-    with open(tmpdir / "assembled.mcnp") as infile:
+    with open(tmpdir / "assembled_small_override.mcnp") as infile:
         result_text = infile.read()
 
     assert "$ FILL = my_envelope_name_1" in result_text

@@ -25,26 +25,29 @@ class _ModelManager:
         self, root_folder_path: Path, configuration_name: str, write_path: Path
     ):
         self.project_manager = ProjectManager(root_folder_path)
-        self.config_name = configuration_name
         self.config = self.project_manager.read_configuration(configuration_name)
         self.write_path = write_path
-        # TODO: reall all metadata into a dictionary for efficiency                       ...
-        ProjectChecker(self.project_manager).check_configuration(self.config)
+        ProjectChecker(self.project_manager).check_project()
 
     def generate_model(self) -> None:
+        logging.info("Generating model for configuration: %s", self.config.name)
+
         file_paths_to_include = self.project_manager.get_included_paths(self.config)
         parsed_blocks = read_files(file_paths_to_include)
         self._fill_envelope_cards(parsed_blocks)
         text = compose_model(parsed_blocks)
+
         with open(
-            self.write_path / "assembled.mcnp", "w", encoding="utf-8-sig"
+            self.write_path / f"assembled_{self.config.name}.mcnp",
+            "w",
+            encoding="utf-8-sig",
         ) as infile:
             infile.write(text)
+
         self._dump_metadata()
+        logging.info("Model generation completed.")
 
     def _fill_envelope_cards(self, parsed_blocks: ParsedBlocks) -> None:
-        # TODO: build a dict[envelope_name, fill_card_text] and then replace line by line
-        # this makes the loop go from 67s to 0.2s in elite
         logging.info("Preparing FILL cards in the envelope structure.")
         envelope_structure_id = self._get_envelope_structure_first_cell_id()
         text = parsed_blocks.cells[envelope_structure_id]
@@ -105,7 +108,7 @@ class _ModelManager:
             self.write_path / "assembled.metadata", "w", encoding="utf-8"
         ) as infile:
             metadata = {
-                "configuration_name": self.config_name,
+                "configuration_name": self.config.name,
                 "gitronics_version": version("gitronics"),
                 "build_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
@@ -115,5 +118,10 @@ class _ModelManager:
 def generate_model(
     root_folder_path: Path, configuration_name: str, write_path: Path
 ) -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     model_manager = _ModelManager(root_folder_path, configuration_name, write_path)
     model_manager.generate_model()

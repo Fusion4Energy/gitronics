@@ -88,6 +88,7 @@ class ProjectManager:
 
         base = self.read_configuration(new_conf.overrides)
 
+        base.name = new_conf.name
         if new_conf.envelope_structure:
             base.envelope_structure = new_conf.envelope_structure
         if new_conf.envelopes:

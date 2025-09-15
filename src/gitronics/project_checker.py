@@ -14,19 +14,38 @@ PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
 
 
 @dataclass
+class ConfigSummaryTables:
+    configuration_and_structure: pl.DataFrame
+    envelopes: pl.DataFrame
+    data_files: pl.DataFrame
+
+
+class SummaryData:
+    def __init__(self):
+        self.all_files_info: pl.DataFrame | None = None
+        self.configuration_summaries: dict[str, ConfigSummaryTables] = {}
+
+
 class ProjectChecker:
-    project_manager: ProjectManager
+    def __init__(self, project_manager: ProjectManager):
+        self.project_manager = project_manager
+        self.summary_data = SummaryData()
 
     def check_project(self):
         """Checks the whole project for potential issues and creates a summary with
         all the files. It also checks the validity of all the configurations."""
+        logging.info(
+            "Checking the validity of the whole project: %s",
+            self.project_manager.project_root,
+        )
         file_paths = self._get_file_paths()
         self._check_no_duplicate_names(file_paths)
         self._check_metadata_files_exist_for_mcnp_models(file_paths)
-        self._create_project_summary(file_paths)
-        self.check_all_configurations(file_paths)
+        self._update_summary_data_with_all_files_info(file_paths)
+        self._check_all_configurations(file_paths)
+        self._write_excel_summary()
 
-    def check_all_configurations(self, paths: list[Path]):
+    def _check_all_configurations(self, paths: list[Path]):
         """Check all the configurations found in the project (files with .yaml or .yml
         suffix)."""
         configuration_files = [
@@ -38,6 +57,7 @@ class ProjectChecker:
             self.check_configuration(config)
 
     def check_configuration(self, config: Config):
+        logging.info("Checking configuration: %s", config.name)
         self._check_envelope_structure(config)
         self._check_envelopes(config)
         self._check_fillers(config)
@@ -46,7 +66,7 @@ class ProjectChecker:
         self._check_materials(config)
         self._check_transforms(config)
         self._trigger_warnings(config)
-        self._create_configuration_summary(config)
+        self._update_summary_data_with_config(config)
 
     def _get_file_paths(self) -> list[Path]:
         paths = []
@@ -69,7 +89,7 @@ class ProjectChecker:
             if path.suffix == ".mcnp" and not path.with_suffix(".metadata").exists():
                 raise GitronicsError(f"Metadata file not found for: {path}")
 
-    def _create_project_summary(self, paths: list[Path]) -> None:
+    def _update_summary_data_with_all_files_info(self, paths: list[Path]) -> None:
         data = []
         for path in paths:
             relative_path = str(
@@ -83,7 +103,7 @@ class ProjectChecker:
             data.append(entry)
 
         dataframe = pl.DataFrame(data).sort(["Type", "Path", "Name"])
-        dataframe.write_csv(self.project_manager.project_root / "project_summary.csv")
+        self.summary_data.all_files_info = dataframe
 
     def _check_envelope_structure(self, config: Config) -> None:
         """Checks that the envelope structure is defined in the configuration and that
@@ -193,7 +213,7 @@ class ProjectChecker:
         if not config.materials or len(config.materials) == 0:
             logging.warning("No materials included in the configuration!")
 
-    def _create_configuration_summary(self, config: Config) -> None:
+    def _update_summary_data_with_config(self, config: Config) -> None:
         """Creates an Excel sheet with a summary of the configuration."""
         table_configuration_and_structure = [
             {"Type": "Configuration", "Name": config.name},
@@ -219,34 +239,45 @@ class ProjectChecker:
         if config.transforms:
             for transform in config.transforms:
                 table_data_files.append({"Type": "Transform", "Name": transform})
-        dataframe_configuration_and_structure = pl.DataFrame(
-            table_configuration_and_structure
+        self.summary_data.configuration_summaries[config.name] = ConfigSummaryTables(
+            pl.DataFrame(table_configuration_and_structure),
+            pl.DataFrame(table_envelopes),
+            pl.DataFrame(table_data_files),
         )
-        dataframe_envelopes = pl.DataFrame(table_envelopes)
-        dataframe_data_files = pl.DataFrame(table_data_files).sort(["Type", "Name"])
 
+    def _write_excel_summary(self) -> None:
         with Workbook(self.project_manager.project_root / "summary.xlsx") as workbook:
-            dataframe_configuration_and_structure.write_excel(
-                workbook,
-                worksheet=config.name,
-                position=(0, 0),
-                autofit=True,
-                header_format={"bold": True},
-            )
-            dataframe_envelopes.write_excel(
-                workbook,
-                worksheet=config.name,
-                position=(4, 0),
-                autofit=True,
-                header_format={"bold": True},
-            )
-            dataframe_data_files.write_excel(
-                workbook,
-                worksheet=config.name,
-                position=(
-                    4,
-                    dataframe_envelopes.width + 1,
-                ),
-                autofit=True,
-                header_format={"bold": True},
-            )
+            if self.summary_data.all_files_info is not None:
+                self.summary_data.all_files_info.write_excel(
+                    workbook,
+                    worksheet="All files",
+                    position=(0, 0),
+                    autofit=True,
+                    header_format={"bold": True},
+                )
+
+            for conf_name, tables in self.summary_data.configuration_summaries.items():
+                tables.configuration_and_structure.write_excel(
+                    workbook,
+                    worksheet=conf_name,
+                    position=(0, 0),
+                    autofit=True,
+                    header_format={"bold": True},
+                )
+                tables.envelopes.write_excel(
+                    workbook,
+                    worksheet=conf_name,
+                    position=(4, 0),
+                    autofit=True,
+                    header_format={"bold": True},
+                )
+                tables.data_files.write_excel(
+                    workbook,
+                    worksheet=conf_name,
+                    position=(
+                        4,
+                        tables.envelopes.width + 1,
+                    ),
+                    autofit=True,
+                    header_format={"bold": True},
+                )
