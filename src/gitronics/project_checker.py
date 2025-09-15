@@ -9,27 +9,50 @@ from gitronics.project_manager import ProjectManager
 PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
 
 
+class NewProjectChecker:
+    def __init__(self, project_manager: ProjectManager):
+        self.project_manager = project_manager
+
+    def check_project(self):
+        # Check that the files have no duplicate names
+
+        # Check that the metadata files exist for MCNP files
+
+        # Create project summary with all the file names, types, and metadata fields
+        # like description, etc.
+
+        # Check all configurations in the project
+        pass
+
+    def check_configuration(self, config: Config):
+        # Check that the envelope structure is defined and that it exists
+
+        # Check that all the envelopes appear in the envelope structure (if there is
+        # an envelopes field). Print a warning if there are envelopes that do not
+        # appear in the configuration.
+
+        # Check that all the fillers exist and that their metadata includes the
+        # necessary transformation.
+
+        # Check that the source file exists (if defined)
+
+        # Check that the tally files exist (if defined)
+
+        # Check that the material files exist (if defined)
+
+        # Check that the transform files exist (if defined)
+
+        # Trigger warnings
+
+        # Create summary of the configuration: one sheet with envelope_name,
+        # filler_name, transformation, universe_id... Other sheet with all the other
+        # files included in the configuration.
+        pass
+
+
 @dataclass
 class ProjectChecker:
     project_manager: ProjectManager
-
-    # @classmethod
-    # def check_project(cls):
-    #     cls.create_summary(write_path=Path(""))
-    #     cls.check_all_files_are_valid()
-    #     cls.check_all_configurations_are_valid()
-
-    # @classmethod
-    # def check_all_files_are_valid(cls):
-    #     pass
-
-    # @classmethod
-    # def check_all_configurations_are_valid(cls):
-    #     pass
-
-    # @classmethod
-    # def create_summary(cls, write_path: Path):
-    #     pass
 
     def check_configuration(self, config: Config) -> None:
         """Checks all the required files, names and metadata related to a specific
