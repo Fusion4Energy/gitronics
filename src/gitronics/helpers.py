@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 ALLOWED_SUFFIXES = {".mcnp", ".transform", ".mat", ".source", ".tally", ".yaml", ".yml"}
 
@@ -11,6 +12,13 @@ TYPE_BY_SUFFIX = {
     ".yaml": "Configuration",
     ".yml": "Configuration",
 }
+
+
+@dataclass
+class ProjectParameters:
+    root_folder_path: Path
+    write_path: Path
+    extra_metadata_fields: list[str] | None = None
 
 
 @dataclass

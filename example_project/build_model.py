@@ -6,17 +6,20 @@ Adapt the PATHS constants to the correct paths.
 
 from pathlib import Path
 
-from gitronics import generate_model
+from gitronics import ProjectParameters, generate_model
 
 ROOT_FOLDER_PATH = Path(r".")
 WRITE_PATH = Path(r"./assembled")
 
 
 def _main():
-    generate_model(
+    project_parameters = ProjectParameters(
         root_folder_path=ROOT_FOLDER_PATH,
-        configuration_name="valid_configuration",
         write_path=WRITE_PATH,
+        extra_metadata_fields=None,
+    )
+    generate_model(
+        configuration_name="valid_configuration", project_parameters=project_parameters
     )
 
 

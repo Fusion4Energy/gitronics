@@ -7,7 +7,12 @@ import polars as pl
 from xlsxwriter import Workbook  # type: ignore
 
 from gitronics.file_discovery import get_all_file_paths
-from gitronics.helpers import ALLOWED_SUFFIXES, TYPE_BY_SUFFIX, Config, GitronicsError
+from gitronics.helpers import (
+    ALLOWED_SUFFIXES,
+    TYPE_BY_SUFFIX,
+    Config,
+    GitronicsError,
+)
 from gitronics.project_manager import ProjectManager
 
 PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
@@ -31,18 +36,18 @@ class ProjectChecker:
         self.project_manager = project_manager
         self.summary_data = SummaryData()
 
-    def check_project(
-        self, write_path: Path, extra_metadata_fields: list[str] | None = None
-    ) -> None:
+    def check_project(self) -> None:
         """Checks the whole project for potential issues and creates a summary with
         all the files. It also checks the validity of all the configurations."""
         logging.info("Checking the validity of the whole project")
         file_paths = self._get_file_paths()
         self._check_no_duplicate_names(file_paths)
         self._check_metadata_files_exist_for_mcnp_models(file_paths)
-        self._update_summary_data_with_all_files_info(file_paths, extra_metadata_fields)
+        self._update_summary_data_with_all_files_info(
+            file_paths, self.project_manager.parameters.extra_metadata_fields
+        )
         self._check_all_configurations(file_paths)
-        self._write_excel_summary(write_path)
+        self._write_excel_summary(self.project_manager.parameters.write_path)
 
     def _check_all_configurations(self, paths: list[Path]) -> None:
         """Check all the configurations found in the project (files with .yaml or .yml

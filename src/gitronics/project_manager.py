@@ -6,16 +6,17 @@ from typing import Any
 import yaml
 
 from gitronics.file_discovery import get_valid_file_paths
-from gitronics.helpers import Config, GitronicsError
+from gitronics.helpers import Config, GitronicsError, ProjectParameters
 
 
 class ProjectManager:
     """Handles the file paths, metadata and configurations of the project."""
 
-    def __init__(self, project_root: Path | str):
-        self.project_root = Path(project_root)
+    def __init__(self, project_parameters: ProjectParameters) -> None:
+        self.parameters = project_parameters
+        self.project_root = project_parameters.root_folder_path
         if not self.project_root.exists() or not self.project_root.is_dir():
-            raise GitronicsError(f"The directory {project_root} does not exist.")
+            raise GitronicsError(f"The directory {self.project_root} does not exist.")
 
         self.file_paths = get_valid_file_paths(self.project_root)
 
