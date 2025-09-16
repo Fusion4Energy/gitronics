@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from gitronics.helpers import GitronicsError
+from gitronics.helpers import GitronicsError, ProjectParameters
 from gitronics.project_checker import ProjectChecker
 from gitronics.project_manager import ProjectManager
 
@@ -16,25 +16,23 @@ INVALID_PROJECT_PATH = (
 PATH_TEST_RESOURCES = Path(__file__).parent / "test_resources"
 
 
-@pytest.fixture
-def project_manager():
-    return ProjectManager(VALID_PROJECT_PATH)
-
-
-@pytest.fixture
-def project_checker(project_manager):
-    return ProjectChecker(project_manager)
-
-
-def test_check_configuration_valid(project_manager, project_checker):
+def test_check_configuration_valid():
+    project_parameters = ProjectParameters(
+        root_folder_path=VALID_PROJECT_PATH,
+        write_path=Path("."),
+    )
+    project_manager = ProjectManager(project_parameters)
+    project_checker = ProjectChecker(project_manager)
     configuration = project_manager.read_configuration("valid_configuration")
     project_checker.check_configuration(configuration)
 
 
 def test_duplicate_file_names():
-    project_manager = ProjectManager(
-        PATH_TEST_RESOURCES / "duplicated_filename_project"
+    project_parameters = ProjectParameters(
+        root_folder_path=PATH_TEST_RESOURCES / "duplicated_filename_project",
+        write_path=Path("."),
     )
+    project_manager = ProjectManager(project_parameters)
     project_checker = ProjectChecker(project_manager)
     file_paths = project_checker._get_file_paths()
     with pytest.raises(
@@ -44,7 +42,11 @@ def test_duplicate_file_names():
 
 
 def test_missing_metadata_in_mcnp_file():
-    project_manager = ProjectManager(PATH_TEST_RESOURCES / "missing_metadata_project")
+    project_parameters = ProjectParameters(
+        root_folder_path=PATH_TEST_RESOURCES / "missing_metadata_project",
+        write_path=Path("."),
+    )
+    project_manager = ProjectManager(project_parameters)
     project_checker = ProjectChecker(project_manager)
     file_paths = project_checker._get_file_paths()
     with pytest.raises(GitronicsError, match="Metadata file not found for: .*"):
@@ -53,7 +55,11 @@ def test_missing_metadata_in_mcnp_file():
 
 @pytest.fixture
 def invalid_project_manager():
-    return ProjectManager(INVALID_PROJECT_PATH)
+    project_parameters = ProjectParameters(
+        root_folder_path=INVALID_PROJECT_PATH,
+        write_path=Path("."),
+    )
+    return ProjectManager(project_parameters)
 
 
 @pytest.fixture
@@ -152,7 +158,13 @@ def test_check_configuration_transforms_path(
         invalid_project_checker.check_configuration(configuration)
 
 
-def test_check_configuration_trigger_warnings(project_manager, project_checker, caplog):
+def test_check_configuration_trigger_warnings(caplog):
+    project_parameters = ProjectParameters(
+        root_folder_path=VALID_PROJECT_PATH,
+        write_path=Path("."),
+    )
+    project_manager = ProjectManager(project_parameters)
+    project_checker = ProjectChecker(project_manager)
     configuration = project_manager.read_configuration("small_config")
     with caplog.at_level(logging.WARNING):
         project_checker.check_configuration(configuration)

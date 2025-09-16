@@ -1,19 +1,26 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from gitronics.generate_model import generate_model
+from gitronics.helpers import ProjectParameters
 
 VALID_PROJECT_PATH = Path(__file__).parent / "test_resources" / "valid_project"
 TEST_RESOURCES_PATH = Path(__file__).parent / "test_resources"
 
 
-def test_generate_model(tmpdir):
-    generate_model(
+@pytest.fixture
+def project_parameters(tmpdir) -> ProjectParameters:
+    return ProjectParameters(
         root_folder_path=VALID_PROJECT_PATH,
-        configuration_name="valid_configuration",
         write_path=tmpdir,
+        extra_metadata_fields=None,
     )
+
+
+def test_generate_model(tmpdir, project_parameters):
+    generate_model("valid_configuration", project_parameters)
     with open(tmpdir / "assembled_valid_configuration.mcnp") as infile:
         result_text = infile.read()
 
@@ -32,12 +39,8 @@ def test_generate_model(tmpdir):
     assert "gitronics_version" in metadata
 
 
-def test_envelope_left_empty_in_configuration(tmpdir):
-    generate_model(
-        root_folder_path=VALID_PROJECT_PATH,
-        configuration_name="small_override",
-        write_path=tmpdir,
-    )
+def test_envelope_left_empty_in_configuration(tmpdir, project_parameters):
+    generate_model("small_override", project_parameters)
     with open(tmpdir / "assembled_small_override.mcnp") as infile:
         result_text = infile.read()
 

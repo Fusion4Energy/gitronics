@@ -18,9 +18,7 @@ def _main():
         write_path=WRITE_PATH,
         extra_metadata_fields=None,
     )
-    generate_model(
-        configuration_name="valid_configuration", project_parameters=project_parameters
-    )
+    generate_model("valid_configuration", project_parameters)
 
 
 if __name__ == "__main__":
