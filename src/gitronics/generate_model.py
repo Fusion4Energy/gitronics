@@ -22,12 +22,18 @@ PLACEHOLDER_PAT = re.compile(r"\$\s+FILL\s*=\s*(\w+)\s*")
 
 class _ModelManager:
     def __init__(
-        self, root_folder_path: Path, configuration_name: str, write_path: Path
+        self,
+        root_folder_path: Path,
+        configuration_name: str,
+        write_path: Path,
+        extra_metadata_fields: list[str] | None = None,
     ):
         self.project_manager = ProjectManager(root_folder_path)
         self.config = self.project_manager.read_configuration(configuration_name)
         self.write_path = write_path
-        ProjectChecker(self.project_manager).check_project(write_path)
+        ProjectChecker(self.project_manager).check_project(
+            write_path, extra_metadata_fields
+        )
 
     def generate_model(self) -> None:
         logging.info("Generating model for configuration: %s", self.config.name)
@@ -118,7 +124,10 @@ class _ModelManager:
 
 
 def generate_model(
-    root_folder_path: Path, configuration_name: str, write_path: Path
+    root_folder_path: Path,
+    configuration_name: str,
+    write_path: Path,
+    extra_metadata_fields: list[str] | None = None,
 ) -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -127,5 +136,7 @@ def generate_model(
         filename=write_path / "model_generation.log",
         filemode="w",
     )
-    model_manager = _ModelManager(root_folder_path, configuration_name, write_path)
+    model_manager = _ModelManager(
+        root_folder_path, configuration_name, write_path, extra_metadata_fields
+    )
     model_manager.generate_model()

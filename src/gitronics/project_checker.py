@@ -31,14 +31,16 @@ class ProjectChecker:
         self.project_manager = project_manager
         self.summary_data = SummaryData()
 
-    def check_project(self, write_path: Path) -> None:
+    def check_project(
+        self, write_path: Path, extra_metadata_fields: list[str] | None = None
+    ) -> None:
         """Checks the whole project for potential issues and creates a summary with
         all the files. It also checks the validity of all the configurations."""
         logging.info("Checking the validity of the whole project")
         file_paths = self._get_file_paths()
         self._check_no_duplicate_names(file_paths)
         self._check_metadata_files_exist_for_mcnp_models(file_paths)
-        self._update_summary_data_with_all_files_info(file_paths)
+        self._update_summary_data_with_all_files_info(file_paths, extra_metadata_fields)
         self._check_all_configurations(file_paths)
         self._write_excel_summary(write_path)
 
@@ -86,7 +88,9 @@ class ProjectChecker:
             if path.suffix == ".mcnp" and not path.with_suffix(".metadata").exists():
                 raise GitronicsError(f"Metadata file not found for: {path}")
 
-    def _update_summary_data_with_all_files_info(self, paths: list[Path]) -> None:
+    def _update_summary_data_with_all_files_info(
+        self, paths: list[Path], extra_metadata_fields: list[str] | None = None
+    ) -> None:
         data = []
         for path in paths:
             relative_path = str(
@@ -98,6 +102,13 @@ class ProjectChecker:
                 "Path": relative_path,
             }
             data.append(entry)
+            if extra_metadata_fields:
+                try:
+                    metadata = self.project_manager.get_metadata(path.stem)
+                except GitronicsError:
+                    metadata = {}
+                for field in extra_metadata_fields:
+                    entry[field] = metadata.get(field, "")
 
         dataframe = pl.DataFrame(data).sort(["Type", "Path", "Name"])
         self.summary_data.all_files_info = dataframe
@@ -211,7 +222,7 @@ class ProjectChecker:
             logging.warning("No materials included in the configuration!")
 
     def _update_summary_data_with_config(self, config: Config) -> None:
-        """Updates the summary_data attribute with the information from the given
+        """Adds to the summary_data attribute the information from the given
         configuration. This data will be used to create the Excel summary."""
         table_configuration_and_structure = [
             {"Type": "Configuration", "Name": config.name},
