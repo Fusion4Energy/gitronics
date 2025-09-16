@@ -211,7 +211,8 @@ class ProjectChecker:
             logging.warning("No materials included in the configuration!")
 
     def _update_summary_data_with_config(self, config: Config) -> None:
-        """Creates an Excel sheet with a summary of the configuration."""
+        """Updates the summary_data attribute with the information from the given
+        configuration. This data will be used to create the Excel summary."""
         table_configuration_and_structure = [
             {"Type": "Configuration", "Name": config.name},
             {"Type": "Envelope Structure", "Name": config.envelope_structure},
