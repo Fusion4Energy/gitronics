@@ -73,12 +73,8 @@ class ProjectChecker:
         self._update_summary_data_with_config(config)
 
     def _get_file_paths(self) -> list[Path]:
-        paths = []
         all_file_paths = get_all_file_paths(self.project_manager.project_root)
-        for path in all_file_paths:
-            if path.suffix in ALLOWED_SUFFIXES:
-                paths.append(path)
-        return paths
+        return [path for path in all_file_paths if path.suffix in ALLOWED_SUFFIXES]
 
     def _check_no_duplicate_names(self, paths: list[Path]) -> None:
         names = set()
@@ -112,8 +108,8 @@ class ProjectChecker:
                     metadata = self.project_manager.get_metadata(path.stem)
                 except GitronicsError:
                     metadata = {}
-                for field in extra_metadata_fields:
-                    entry[field] = metadata.get(field, "")
+                for metadata_field in extra_metadata_fields:
+                    entry[metadata_field] = metadata.get(metadata_field, "")
 
         dataframe = pl.DataFrame(data).sort(["Type", "Path", "Name"])
         self.summary_data.all_files_info = dataframe
@@ -188,37 +184,32 @@ class ProjectChecker:
     def _check_source(self, config: Config) -> None:
         """Check that the source file exists (if defined)."""
         if config.source:
-            if config.source not in self.project_manager.file_paths:
-                raise GitronicsError(
-                    f"Source file {config.source} not found in the project."
-                )
+            self._check_file_exists(config.source, "Source")
 
     def _check_tallies(self, config: Config) -> None:
         """Check that the tally files exist (if defined)."""
         if config.tallies:
             for tally in config.tallies:
-                if tally not in self.project_manager.file_paths:
-                    raise GitronicsError(
-                        f"Tally file {tally} not found in the project."
-                    )
+                self._check_file_exists(tally, "Tally")
 
     def _check_materials(self, config: Config) -> None:
         """Check that the material files exist (if defined)."""
         if config.materials:
             for material in config.materials:
-                if material not in self.project_manager.file_paths:
-                    raise GitronicsError(
-                        f"Material file {material} not found in the project."
-                    )
+                self._check_file_exists(material, "Material")
 
     def _check_transforms(self, config: Config) -> None:
         """Check that the transform files exist (if defined)."""
         if config.transforms:
             for transform in config.transforms:
-                if transform not in self.project_manager.file_paths:
-                    raise GitronicsError(
-                        f"Transform file {transform} not found in the project."
-                    )
+                self._check_file_exists(transform, "Transform")
+
+    def _check_file_exists(self, file_name: str, file_type: str) -> None:
+        """Generic helper to check if a file exists in the project."""
+        if file_name not in self.project_manager.file_paths:
+            raise GitronicsError(
+                f"{file_type} file {file_name} not found in the project."
+            )
 
     def _trigger_warnings(self, config: Config) -> None:
         if not config.source:
