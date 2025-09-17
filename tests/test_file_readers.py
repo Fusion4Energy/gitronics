@@ -11,8 +11,8 @@ WRONG_FILES_PATH = Path(__file__).parent / "test_resources" / "wrong_files"
 def test_read_files_mcnp():
     parsed_blocks = read_files(
         [
-            Path(VALID_PROJECT_PATH / "models" / "envelope_structure.mcnp"),
-            Path(VALID_PROJECT_PATH / "models" / "filler_model_1.mcnp"),
+            VALID_PROJECT_PATH / "models" / "envelope_structure.mcnp",
+            VALID_PROJECT_PATH / "models" / "filler_model_1.mcnp",
         ]
     )
     assert parsed_blocks.cells[1] == MAIN_INPUT_CELLS
@@ -59,7 +59,7 @@ def test_read_files_wrong_data_card():
         ValueError,
         match="Could not parse the first ID value in file .*",
     ):
-        read_files([Path(WRONG_FILES_PATH / "wrong_data_card.mat")])
+        read_files([WRONG_FILES_PATH / "wrong_data_card.mat"])
 
 
 def test_read_file_wrong_suffix():
@@ -67,7 +67,7 @@ def test_read_file_wrong_suffix():
         ValueError,
         match="Unknown file suffix for: .*",
     ):
-        read_files([Path(WRONG_FILES_PATH / "wrong_suffix.wrong")])
+        read_files([WRONG_FILES_PATH / "wrong_suffix.wrong"])
 
 
 MAIN_INPUT_CELLS = """Title of the MCNP model
