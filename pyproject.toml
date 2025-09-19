@@ -1,21 +1,31 @@
-[build-system]
-requires = ["setuptools", "setuptools_scm[toml]"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools_scm]
-write_to = "src/_version.py"
-
 [project]
 name = "gitronics"
-license = {file = "LICENSE.txt"}
-dynamic = ["version"]
+description = "Automatically build an MCNP from a set of files."
+readme = "README.md"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
 authors = [
   { name="Alvaro Cubi", email="cubiric@hotmail.com" },
 ]
-description = "Automatically build an MCNP from a set of files."
-readme = "README.md"
-requires-python = ">=3.12"
-dependencies = ["PyYAML", "polars", "xlsxwriter"]
+dynamic = ["version"]
+dependencies = [
+    "pip>=25.2",
+    "polars>=1.33.1",
+    "pyyaml>=6.0.2",
+    "xlsxwriter>=3.2.9",
+]
 
-[project.optional-dependencies]
-tests = ["pytest", "pytest-cov", "mypy", "pylint", "types-PyYAML"]
+[dependency-groups]
+dev = [
+    "pylint>=3.3.8",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "types-pyyaml>=6.0.12.20250915",
+]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
