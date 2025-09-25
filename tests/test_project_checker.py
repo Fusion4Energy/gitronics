@@ -171,3 +171,19 @@ def test_check_configuration_trigger_warnings(caplog):
 
     assert "No source included in the configuration!" in caplog.text
     assert "No materials included in the configuration!" in caplog.text
+
+
+def test_check_configuration_envelope_not_accounted(caplog):
+    project_parameters = ProjectParameters(
+        root_folder_path=VALID_PROJECT_PATH,
+        write_path=Path("."),
+    )
+    project_manager = ProjectManager(project_parameters)
+    project_checker = ProjectChecker(project_manager)
+    configuration = project_manager.read_configuration("envelope_not_accounted")
+    with caplog.at_level(logging.WARNING):
+        project_checker.check_configuration(configuration)
+    assert (
+        "There are empty envelopes in the structure not accounted for in the "
+        "configuration: {'envelope_name_2'}" in caplog.text
+    )

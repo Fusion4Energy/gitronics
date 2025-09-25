@@ -158,7 +158,7 @@ class ProjectChecker:
         if empty_envelopes:
             logging.warning(
                 "There are empty envelopes in the structure not accounted for in the "
-                "configuration: %d",
+                "configuration: %s",
                 empty_envelopes,
             )
 
