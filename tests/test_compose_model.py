@@ -1,5 +1,4 @@
 # ruff: noqa: E501
-import logging
 from pathlib import Path
 
 from gitronics.compose_model import compose_model
