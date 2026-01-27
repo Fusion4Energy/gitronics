@@ -11,6 +11,12 @@ from pathlib import Path
 
 
 @dataclass
+class _FirstIdAndText:
+    first_id: int
+    text: str
+
+
+@dataclass
 class ParsedBlocks:
     """Contains all the sections of the MCNP input model."""
 
@@ -28,65 +34,50 @@ class ParsedBlocks:
             cells={}, surfaces={}, tallies={}, materials={}, transforms={}, source=""
         )
 
-    def add_file(self, file: Path) -> None:
-        """Adds the file if the suffix is recognized."""
-        suffix = file.suffix[1:]  # remove the dot like in ".mcnp"
+    def add_cells(self, block: _FirstIdAndText) -> None:
+        if block.first_id in self.cells:
+            raise ValueError(
+                "Overwriting cells block with the same first cell ID:"
+                f" {block.first_id}"
+            )
+        self.cells[block.first_id] = block.text
 
-        match suffix:
-            case "mcnp":
-                self._add_mcnp_file(file)
+    def add_surfaces(self, block: _FirstIdAndText) -> None:
+        if block.first_id in self.surfaces:
+            raise ValueError(
+                "Overwriting surfaces block with the same first surface ID:"
+                f" {block.first_id}"
+            )
+        self.surfaces[block.first_id] = block.text
 
-            case "tally":
-                self._add_tally_file(file)
-
-            case "mat":
-                self._add_material_file(file)
-
-            case "transform":
-                self._add_transform_file(file)
-
-            case "source":
-                self._add_source_file(file)
-
-            case _:
-                raise ValueError(f"Unknown file suffix for: {file}")
-
-    def _add_mcnp_file(self, file: Path) -> None:
-        cells_block, surfaces_block = _read_mcnp(file)
-        self.cells[cells_block.first_id] = cells_block.text
-        self.surfaces[surfaces_block.first_id] = surfaces_block.text
-
-    def _add_tally_file(self, file: Path) -> None:
-        block = _read_first_block(file)
+    def add_tallies(self, block: _FirstIdAndText) -> None:
+        if block.first_id in self.tallies:
+            raise ValueError(
+                "Overwriting tally block with the same first tally ID:"
+                f" {block.first_id}"
+            )
         self.tallies[block.first_id] = block.text
 
-    def _add_material_file(self, file: Path) -> None:
-        block = _read_first_block(file)
+    def add_materials(self, block: _FirstIdAndText) -> None:
+        if block.first_id in self.materials:
+            raise ValueError(
+                "Overwriting material block with the same first material ID:"
+                f" {block.first_id}"
+            )
         self.materials[block.first_id] = block.text
 
-    def _add_transform_file(self, file: Path) -> None:
-        block = _read_first_block(file)
+    def add_transforms(self, block: _FirstIdAndText) -> None:
+        if block.first_id in self.transforms:
+            raise ValueError(
+                "Overwriting transform block with the same first transform ID:"
+                f" {block.first_id}"
+            )
         self.transforms[block.first_id] = block.text
 
-    def _add_source_file(self, file: Path) -> None:
-        self.source = _read_first_block(file).text
-
-
-def read_files(files: list[Path]) -> ParsedBlocks:
-    """Reads the files and returns the parsed blocks."""
-    parsed_blocks = ParsedBlocks.empty_instance()
-
-    for file in files:
-        logging.info("Reading file: %s", file)
-        parsed_blocks.add_file(file)
-
-    return parsed_blocks
-
-
-@dataclass
-class _FirstIdAndText:
-    first_id: int
-    text: str
+    def add_source(self, block: _FirstIdAndText) -> None:
+        if self.source:
+            raise ValueError("Overwriting source block which is already set.")
+        self.source = block.text
 
 
 BLANK_LINE = re.compile(r"^\s*\n", flags=re.MULTILINE)
@@ -102,20 +93,20 @@ def _read_mcnp(file: Path) -> tuple[_FirstIdAndText, _FirstIdAndText]:
             f"File {file} does not contain the two blocks: cells and surfaces."
         )
 
-    cells, surfaces = blocks[:2]
+    cell_block, surfaces_block = blocks[:2]
 
-    match_first_cell_id = re.search(r"^\d+", cells, flags=re.MULTILINE)
+    match_first_cell_id = re.search(r"^\d+", cell_block, flags=re.MULTILINE)
     if not match_first_cell_id:
         raise ValueError(f"Could not parse the first cell ID value in {file}.")
     first_cell_id = int(match_first_cell_id.group())
 
-    match_first_surface_id = re.search(r"^\*?\d+", surfaces, flags=re.MULTILINE)
+    match_first_surface_id = re.search(r"^\*?\d+", surfaces_block, flags=re.MULTILINE)
     if not match_first_surface_id:
         raise ValueError(f"Could not parse the first surface ID value in {file}.")
     first_surface_id = int(match_first_surface_id.group())
 
-    return _FirstIdAndText(first_cell_id, cells), _FirstIdAndText(
-        first_surface_id, surfaces
+    return _FirstIdAndText(first_cell_id, cell_block), _FirstIdAndText(
+        first_surface_id, surfaces_block
     )
 
 
@@ -131,3 +122,34 @@ def _read_first_block(file: Path) -> _FirstIdAndText:
     first_id = int(match_first_id.group(1))
 
     return _FirstIdAndText(first_id, text)
+
+
+def read_files(files: list[Path]) -> ParsedBlocks:
+    """Reads the files and returns the parsed blocks."""
+    parsed_blocks = ParsedBlocks.empty_instance()
+
+    for file in files:
+        logging.info("Reading file: %s", file)
+        suffix = file.suffix[1:]  # remove the dot like in ".mcnp"
+
+        match suffix:
+            case "mcnp":
+                cells_block, surfaces_block = _read_mcnp(file)
+                parsed_blocks.add_cells(cells_block)
+                parsed_blocks.add_surfaces(surfaces_block)
+            case "tally":
+                block = _read_first_block(file)
+                parsed_blocks.add_tallies(block)
+            case "mat":
+                block = _read_first_block(file)
+                parsed_blocks.add_materials(block)
+            case "transform":
+                block = _read_first_block(file)
+                parsed_blocks.add_transforms(block)
+            case "source":
+                block = _read_first_block(file)
+                parsed_blocks.add_source(block)
+            case _:
+                raise ValueError(f"Unknown file suffix for: {file}")
+
+    return parsed_blocks
