@@ -70,6 +70,94 @@ def test_read_file_wrong_suffix():
         read_files([WRONG_FILES_PATH / "wrong_suffix.wrong"])
 
 
+def test_read_tallies_without_id():
+    parsed_blocks = read_files(
+        [
+            VALID_PROJECT_PATH / "data_cards" / "ssw_card.tally",
+            VALID_PROJECT_PATH / "data_cards" / "ssw_card.tally",
+        ]
+    )
+    assert "SSW" in parsed_blocks.tallies[0]
+
+
+def test_read_cells_repeated_first_id():
+    with pytest.raises(
+        ValueError,
+        match="Overwriting cells block with the same first cell ID: 1",
+    ):
+        read_files(
+            [
+                VALID_PROJECT_PATH / "models" / "envelope_structure.mcnp",
+                VALID_PROJECT_PATH / "models" / "envelope_structure.mcnp",
+            ]
+        )
+
+
+def test_read_surfaces_repeated_first_id():
+    with pytest.raises(
+        ValueError,
+        match="Overwriting surfaces block with the same first surface ID: 10",
+    ):
+        read_files(
+            [
+                VALID_PROJECT_PATH / "models" / "filler_model_1.mcnp",
+                VALID_PROJECT_PATH / "models" / "filler_model_repeat_surface.mcnp",
+            ]
+        )
+
+
+def test_read_tallies_repeated_first_id():
+    with pytest.raises(
+        ValueError,
+        match="Overwriting tally block with the same first tally ID: 24",
+    ):
+        read_files(
+            [
+                VALID_PROJECT_PATH / "data_cards" / "fine_mesh.tally",
+                VALID_PROJECT_PATH / "data_cards" / "fine_mesh.tally",
+            ]
+        )
+
+
+def test_read_materials_repeated_first_id():
+    with pytest.raises(
+        ValueError,
+        match="Overwriting material block with the same first material ID: 14",
+    ):
+        read_files(
+            [
+                VALID_PROJECT_PATH / "data_cards" / "materials.mat",
+                VALID_PROJECT_PATH / "data_cards" / "materials.mat",
+            ]
+        )
+
+
+def test_read_transforms_repeated_first_id():
+    with pytest.raises(
+        ValueError,
+        match="Overwriting transform block with the same first transform ID: 1",
+    ):
+        read_files(
+            [
+                VALID_PROJECT_PATH / "data_cards" / "my_transform.transform",
+                VALID_PROJECT_PATH / "data_cards" / "my_transform.transform",
+            ]
+        )
+
+
+def test_read_source_repeated():
+    with pytest.raises(
+        ValueError,
+        match="Overwriting source block which is already set.",
+    ):
+        read_files(
+            [
+                VALID_PROJECT_PATH / "data_cards" / "volumetric_source.source",
+                VALID_PROJECT_PATH / "data_cards" / "volumetric_source.source",
+            ]
+        )
+
+
 MAIN_INPUT_CELLS = """Title of the MCNP model
 C
 C
