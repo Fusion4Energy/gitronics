@@ -70,6 +70,16 @@ def test_read_file_wrong_suffix():
         read_files([WRONG_FILES_PATH / "wrong_suffix.wrong"])
 
 
+def test_read_tallies_without_id():
+    parsed_blocks = read_files(
+        [
+            VALID_PROJECT_PATH / "data_cards" / "ssw_card.tally",
+            VALID_PROJECT_PATH / "data_cards" / "ssw_card.tally",
+        ]
+    )
+    assert "SSW" in parsed_blocks.tallies[0]
+
+
 def test_read_cells_repeated_first_id():
     with pytest.raises(
         ValueError,

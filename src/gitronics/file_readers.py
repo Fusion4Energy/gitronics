@@ -51,6 +51,14 @@ class ParsedBlocks:
         self.surfaces[block.first_id] = block.text
 
     def add_tallies(self, block: _FirstIdAndText) -> None:
+        # Tally files are allowed to not have an ID (e.g. a SSW card)
+        if block.first_id == 0:
+            if 0 in self.tallies:
+                self.tallies[0] += block.text
+            else:
+                self.tallies[0] = block.text
+            return
+        
         if block.first_id in self.tallies:
             raise ValueError(
                 "Overwriting tally block with the same first tally ID:"
@@ -74,10 +82,10 @@ class ParsedBlocks:
             )
         self.transforms[block.first_id] = block.text
 
-    def add_source(self, block: _FirstIdAndText) -> None:
+    def add_source(self, text: str) -> None:
         if self.source:
             raise ValueError("Overwriting source block which is already set.")
-        self.source = block.text
+        self.source = text
 
 
 BLANK_LINE = re.compile(r"^\s*\n", flags=re.MULTILINE)
@@ -124,6 +132,14 @@ def _read_first_block(file: Path) -> _FirstIdAndText:
     return _FirstIdAndText(first_id, text)
 
 
+def _read_first_block_without_id(file: Path) -> str:
+    with open(file, encoding="utf-8") as infile:
+        text = BLANK_LINE.split(infile.read())[0]
+        if text[-1] != "\n":
+            text += "\n"
+    return text
+
+
 def read_files(files: list[Path]) -> ParsedBlocks:
     """Reads the files and returns the parsed blocks."""
     parsed_blocks = ParsedBlocks.empty_instance()
@@ -138,7 +154,11 @@ def read_files(files: list[Path]) -> ParsedBlocks:
                 parsed_blocks.add_cells(cells_block)
                 parsed_blocks.add_surfaces(surfaces_block)
             case "tally":
-                block = _read_first_block(file)
+                try:
+                    block = _read_first_block(file)
+                except ValueError:
+                    block = _FirstIdAndText(0, _read_first_block_without_id(file))
+
                 parsed_blocks.add_tallies(block)
             case "mat":
                 block = _read_first_block(file)
@@ -147,8 +167,8 @@ def read_files(files: list[Path]) -> ParsedBlocks:
                 block = _read_first_block(file)
                 parsed_blocks.add_transforms(block)
             case "source":
-                block = _read_first_block(file)
-                parsed_blocks.add_source(block)
+                text = _read_first_block_without_id(file)
+                parsed_blocks.add_source(text)
             case _:
                 raise ValueError(f"Unknown file suffix for: {file}")
 
