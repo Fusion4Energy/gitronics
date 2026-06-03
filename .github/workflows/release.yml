@@ -76,16 +76,11 @@ jobs:
             sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
           fi
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist
           # Use manylinux for Linux builds to maximise compatibility
           manylinux: auto
 

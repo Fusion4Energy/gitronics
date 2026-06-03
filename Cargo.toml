@@ -14,7 +14,7 @@ name = "gitronics"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module", "auto-initialize"] }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
 migjorn = { version = "0.1.5" }
 walkdir = "2.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
