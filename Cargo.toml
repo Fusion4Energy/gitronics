@@ -2,6 +2,8 @@
 name = "gitronics"
 version = "0.1.0"
 edition = "2024"
+description = "Build MCNP neutronics models from modular components"
+license = "EUPL-1.2"
 
 [[bin]]
 name = "gitronics"
