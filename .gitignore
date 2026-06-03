@@ -1,9 +1,6 @@
-*.pyc
+/target
+out/
 __pycache__/
-*.egg-info/
-src/_version.py
-.coverage
-.assembled
-docs/_build/
-make.bat
-Makefile
+*.so
+*.pyd
+*.pdb

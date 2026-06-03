@@ -1,31 +1,22 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
 [project]
 name = "gitronics"
-description = "Automatically build an MCNP from a set of files."
-readme = "README.md"
-license-files = ["LICENSE"]
-requires-python = ">=3.13"
-authors = [
-  { name="Alvaro Cubi", email="cubiric@hotmail.com" },
-]
-dynamic = ["version"]
-dependencies = [
-    "pip>=25.2",
-    "polars>=1.33.1",
-    "pyyaml>=6.0.2",
-    "xlsxwriter>=3.2.9",
+version = "0.1.0"
+description = "Build MCNP neutronics models from modular components"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
 ]
 
-[dependency-groups]
-dev = [
-    "pylint>=3.3.8",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
-    "types-pyyaml>=6.0.12.20250915",
-]
+[project.scripts]
+gitronics = "gitronics:_cli_main"
 
-[build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
-
-[tool.hatch.version]
-source = "uv-dynamic-versioning"
+[tool.maturin]
+bindings = "pyo3"
+python-source = "python"
+module-name = "gitronics.gitronics"

@@ -1,6 +1,0 @@
-overrides: null
-envelope_structure: envelope_structure
-source: wrong
-materials: [materials]
-transformations: [my_transform]
-tallies: [fine_mesh]
