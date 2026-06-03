@@ -11,15 +11,6 @@ use indexmap::IndexMap;
 use migjorn::Model;
 use serde::{Deserialize, Serialize};
 
-/// Metadata associated with an assembled model
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AssembledMetadata {
-    pub configuration: String,
-    pub date_time: String,
-    pub gitronics_version: String,
-    pub git_commit_hash: String,
-}
-
 /// Metadata associated with a filler model, describing how it should be placed.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FillerMetadata {

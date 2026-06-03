@@ -1,10 +1,10 @@
 use crate::project_manager::ProjectManager;
-use crate::types::{AssembledMetadata, CellId, EnvelopeName, FillerName, UniverseId};
+use crate::types::{CellId, EnvelopeName, FillerName, UniverseId};
 use crate::utils::GitronicsError;
 
 use git2::Repository;
 use log::{info, warn};
-use migjorn::{Card, CellParam, DataCard, Model, ParamType};
+use migjorn::{Card, CellCard, CellParam, DataCard, Model, ParamType};
 use regex::Regex;
 use std::{collections::HashMap, path::Path, sync::LazyLock};
 use std::{env, fs};
@@ -63,8 +63,8 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 
     // Write model
     let assembled_path = project_manager.output_path().join("assembled.mcnp");
+    write_assembled_header(&mut envelope_structure, config_path)?;
     envelope_structure.write_to_file(&assembled_path)?;
-    write_assembled_metadata(&project_manager, config_path)?;
     fs::write(output_path.join(".gitignore"), "*\n")?;
 
     info!(
@@ -168,25 +168,37 @@ fn get_universe_id_of_model(model: &Model) -> Result<UniverseId, GitronicsError>
         .ok_or_else(|| GitronicsError::FirstCellWithoutUniverseID(FillerName::from(model)))
 }
 
-fn write_assembled_metadata(
-    project_manager: &ProjectManager,
+fn write_assembled_header(
+    assembled_model: &mut Model,
     config_path: &Path,
 ) -> Result<(), GitronicsError> {
     let configuration = config_path.display().to_string();
     let date_time = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let gitronics_version = env!("CARGO_PKG_VERSION");
     let commit_hash = get_hash_of_project();
-    let assembled_metadata = AssembledMetadata {
-        configuration,
-        date_time,
-        gitronics_version: gitronics_version.to_string(),
-        git_commit_hash: commit_hash,
-    };
-    let metadata_path = project_manager.output_path().join("assembled.metadata");
-    let yaml_content = serde_saphyr::to_string(&assembled_metadata).map_err(|e| {
-        GitronicsError::YamlSerialize(metadata_path.display().to_string(), e.to_string())
-    })?;
-    fs::write(&metadata_path, yaml_content)?;
+
+    let banner = format!(
+        "C ============================================================
+C  Built by gitronics v{gitronics_version}
+C  Configuration : {configuration}
+C  Git commit    : {commit_hash}
+C  Date / time   : {date_time}
+C ============================================================"
+    );
+    let new_card_text = format!(
+        "{banner}\n{}",
+        assembled_model
+            .cells
+            .first()
+            .map(|c| c.original_text())
+            .unwrap_or_default()
+    );
+
+    let banner_card = CellCard::try_from(new_card_text.as_str())
+        .expect("Adding comments as header should not fail");
+
+    // Replace the first cell (previously a comment placeholder) with the banner card
+    assembled_model.cells[0] = banner_card;
     Ok(())
 }
 
