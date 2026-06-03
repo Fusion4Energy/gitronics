@@ -25,9 +25,20 @@ jobs:
                   components: clippy
 
             - name: Set up Python (Required for PyO3 test linking)
+              id: setup-python
               uses: actions/setup-python@v5
               with:
                   python-version: "3.11"
+
+            - name: Configure PyO3 Python path
+              shell: bash
+              run: |
+                  echo "PYO3_PYTHON=${{ steps.setup-python.outputs.python-path }}" >> $GITHUB_ENV
+                  if [[ "$RUNNER_OS" == "macOS" ]]; then
+                    PYLIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+                    PYVER=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LDVERSION'))")
+                    echo "RUSTFLAGS=-L${PYLIB} -lpython${PYVER}" >> $GITHUB_ENV
+                  fi
 
             - name: Cache cargo registry
               uses: actions/cache@v4
