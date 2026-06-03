@@ -1,0 +1,46 @@
+name: Docs
+
+on:
+    push:
+        tags:
+            - "v[0-9]+.[0-9]+.[0-9]*"
+    # Allow manual triggering from the Actions tab
+    workflow_dispatch:
+
+permissions:
+    contents: write # needed to push to gh-pages branch
+
+jobs:
+    deploy-docs:
+        name: Build & deploy documentation
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  # Fetch full history so mike can read previous deployments
+                  fetch-depth: 0
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+
+            - name: Install documentation dependencies
+              run: pip install -r docs/requirements.txt
+
+            - name: Extract version from tag
+              id: version
+              run: |
+                  # Strip the leading "v" so MkDocs sees "1.2.3", not "v1.2.3"
+                  VERSION="${GITHUB_REF_NAME#v}"
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+            - name: Build & deploy to GitHub Pages
+              run: |
+                  git config user.name  "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  # Deploy this version and update the "latest" alias
+                  pip install mike
+                  mike deploy --push --update-aliases "${{ steps.version.outputs.version }}" latest
+                  mike set-default --push latest
