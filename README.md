@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/logo.png" alt="Gitronics logo" width="140"/>
+  <img src="docs/assets/logo.png" alt="Gitronics logo" width="140"/>
   <h1>Gitronics</h1>
   <p><strong>Build MCNP neutronics models from modular, version-controlled components.</strong></p>
 
@@ -11,7 +11,7 @@
 
 ---
 
-Gitronics lets you decompose a monolithic **MCNP** input file into independent, version-controllable components — universe filler models, an envelope structure, and separate data cards — and reassemble them at build time via a YAML configuration.
+Gitronics lets you decompose a monolithic [MCNP](https://mcnp.lanl.gov/) input file into independent, version-controllable components — universe filler models, an envelope structure, and separate data cards — and reassemble them at build time via a YAML configuration.
 
 **Full documentation: [fusion4energy.github.io/gitronics](https://fusion4energy.github.io/gitronics/latest/)**
 
@@ -60,7 +60,7 @@ gitronics migrate --help
 my_project/
 ├── configurations/
 │   ├── baseline.yaml          ← declares which fillers go where
-│   └── variant_A.yaml         ← inherits baseline, overrides selected envelopes
+│   └── variant_A.yaml         ← inherits baseline, overrides some fields
 ├── output/
 │   └── .gitignore
 └── reference_model/
@@ -77,7 +77,7 @@ my_project/
 ## Configuration example
 
 ```yaml
-project_roots: [..]
+project_roots: [..]  # Relative to this file's location
 
 envelope_structure: envelope_structure
 source: dt_plasma
@@ -87,7 +87,7 @@ tallies: [tritium_breeding_ratio]
 envelopes:
   blanket_inner: blanket_v3
   blanket_outer: blanket_reference
-  divertor:      null           # void — no FILL card inserted
+  divertor: null  # void — no FILL card inserted
 ```
 
 Configurations support inheritance: a variant config can set `overrides: baseline.yaml` and override only the fields that differ.
