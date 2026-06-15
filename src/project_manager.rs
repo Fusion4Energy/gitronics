@@ -4,7 +4,7 @@ use crate::types::{EnvelopeName, FileName, FillerName};
 use crate::utils::{GitronicsError, get_file_paths};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::fs::{self, create_dir_all};
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 mod load_metadata;
@@ -102,7 +102,7 @@ fn index_project_files(
                     return Err(GitronicsError::DuplicateFileName(entry.key().clone()));
                 }
                 Entry::Vacant(entry) => {
-                    entry.insert(fs::canonicalize(path)?);
+                    entry.insert(dunce::canonicalize(path)?);
                 }
             }
         }
