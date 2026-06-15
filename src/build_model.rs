@@ -6,6 +6,7 @@ use git2::Repository;
 use log::{info, warn};
 use migjorn::{Card, CellCard, CellParam, DataCard, Model, ParamType};
 use regex::Regex;
+use std::collections::HashSet;
 use std::{collections::HashMap, path::Path, sync::LazyLock};
 use std::{env, fs};
 
@@ -82,6 +83,9 @@ fn add_fill_cards_to_envelopes(
     universe_ids: &HashMap<FillerName, UniverseId>,
     envelope_structure: &mut Model,
 ) -> Result<(), GitronicsError> {
+    let mut missing_envelopes_in_file: HashSet<EnvelopeName> =
+        project_manager.envelopes_in_config().cloned().collect();
+
     for cell in envelope_structure.cells.iter_mut() {
         let original_text = cell.original_text();
         let Some(caps) = ENVELOPE_RE.captures(original_text) else {
@@ -105,6 +109,9 @@ fn add_fill_cards_to_envelopes(
             continue;
         };
 
+        // Remove the envelope from the set of missing envelopes, as we have found it in the file
+        missing_envelopes_in_file.remove(&envelope_name);
+
         // Envelope explicitly set to null in config, so we skip it
         let Some(filler_name) = env_config.as_ref() else {
             continue;
@@ -127,6 +134,18 @@ fn add_fill_cards_to_envelopes(
             cell.params().len(),
             CellParam::try_from(fill_card_text.clone())
                 .map_err(|e| GitronicsError::InvalidFillCard(fill_card_text, e.to_string()))?,
+        );
+    }
+
+    if !missing_envelopes_in_file.is_empty() {
+        warn!(
+            "The following envelopes were defined in the configuration file but not found in the envelope structure file: {}. \
+             Please check that the `$ @env:envelope_name` pattern is satisfied.",
+            missing_envelopes_in_file
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     Ok(())
