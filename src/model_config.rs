@@ -39,7 +39,8 @@ impl ModelConfig {
 
     /// Parses a model configuration from a YAML file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, GitronicsError> {
-        let yaml_content = fs::read_to_string(&path)?;
+        let yaml_content =
+            fs::read_to_string(&path).map_err(|source| GitronicsError::io_path(&path, source))?;
         let mut config: ModelConfig = serde_saphyr::from_str(&yaml_content).map_err(|e| {
             GitronicsError::YamlParse(path.as_ref().to_string_lossy().to_string(), e.to_string())
         })?;
