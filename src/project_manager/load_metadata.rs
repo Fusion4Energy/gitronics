@@ -24,7 +24,8 @@ impl ProjectManager {
         if !metadata_path.exists() {
             return Err(GitronicsError::MetadataNotFound(filler_name.into()));
         }
-        let yaml_content = fs::read_to_string(&metadata_path)?;
+        let yaml_content = fs::read_to_string(&metadata_path)
+            .map_err(|source| GitronicsError::io_path(&metadata_path, source))?;
         let filler_metadata: FillerMetadata =
             serde_saphyr::from_str(&yaml_content).map_err(|e| {
                 GitronicsError::YamlParse(

@@ -19,6 +19,13 @@ const VALID_SUFFIXES: &[&str] = &["yaml", "yml", "mcnp", "mat", "tally", "transf
 
 #[derive(Debug, Error)]
 pub enum GitronicsError {
+    #[error("I/O error at `{path}`: {source}")]
+    IoPath {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+
     #[error("I/O error occurred: `{0}`")]
     Io(#[from] io::Error),
 
@@ -79,6 +86,15 @@ pub enum GitronicsError {
 
     #[error("{0}")]
     ValidationError(String),
+}
+
+impl GitronicsError {
+    pub fn io_path(path: impl AsRef<Path>, source: io::Error) -> Self {
+        Self::IoPath {
+            path: path.as_ref().display().to_string(),
+            source,
+        }
+    }
 }
 
 /// Recursively discovers and indexes all project files by their stem names.

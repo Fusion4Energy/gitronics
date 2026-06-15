@@ -63,6 +63,7 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
         .map_err(|e| GitronicsError::ValidationError(e.to_string()))?;
 
     // Write model
+    info!("Writing assembled model to file");
     let assembled_path = project_manager.output_path().join("assembled.mcnp");
     write_assembled_header(&mut envelope_structure, config_path)?;
     envelope_structure.write_to_file(&assembled_path)?;
