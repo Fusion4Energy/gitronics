@@ -28,6 +28,8 @@ regex = "1.12.3"
 clap = { version = "4.6.1", features = ["derive"] }
 indexmap = { version = "2.14.0", features = ["serde"] }
 git2 = "0.21.0"
+dunce = "1.0.5"
 
 [dev-dependencies]
 tempfile = "3.0"
+logtest = "2.0"

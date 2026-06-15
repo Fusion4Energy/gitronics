@@ -1,4 +1,6 @@
 use gitronics::build_model;
+use log::Level;
+use logtest::Logger;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
@@ -245,4 +247,43 @@ fn test_filler_first_cell_without_universe_id() {
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("No universe ID found in first cell of filler model"));
+}
+
+#[test]
+fn test_envelopes_in_config_that_dont_exist() {
+    let mut logger = Logger::start();
+    let dir = tempdir().unwrap();
+    let example_project_path = PathBuf::from("example_project/");
+    copy_dir(&example_project_path, dir.path()).unwrap();
+
+    fs::write(
+        dir.path().join("configurations/valid_configuration.yaml"),
+        "project_roots: [..]
+overrides: null
+
+envelope_structure: envelope_structure
+source: volumetric_source
+materials: [materials]
+transformations: [my_transform]
+tallies: [fine_mesh]
+envelopes:
+  my_envelope_name_1: filler_model_1
+  wrong_envelope_name: filler_model_2
+",
+    )
+    .unwrap();
+
+    build_model(
+        &dir.path().join("configurations/valid_configuration.yaml"),
+        dir.path().join("out").as_path(),
+    )
+    .unwrap();
+
+    let warn_message = "The following envelopes were defined in the configuration file but not found in the envelope structure file";
+
+    assert!(
+        logger.any(|record| {
+            record.level() == Level::Warn && record.args().contains(warn_message)
+        })
+    );
 }

@@ -4,7 +4,7 @@ use crate::types::{EnvelopeName, FileName, FillerName};
 use crate::utils::{GitronicsError, get_file_paths};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::fs::{self, create_dir_all};
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 mod load_metadata;
@@ -85,6 +85,11 @@ impl ProjectManager {
             .get(envelope_name)
             .and_then(|opt| opt.as_deref()))
     }
+
+    /// Returns an iterator over the envelope names defined in the configuration.
+    pub fn envelopes_in_config(&self) -> impl Iterator<Item = &EnvelopeName> {
+        self.model_config.envelopes().keys()
+    }
 }
 
 /// Indexes project files using roots resolved from a loaded configuration.
@@ -102,7 +107,7 @@ fn index_project_files(
                     return Err(GitronicsError::DuplicateFileName(entry.key().clone()));
                 }
                 Entry::Vacant(entry) => {
-                    entry.insert(fs::canonicalize(path)?);
+                    entry.insert(dunce::canonicalize(path)?);
                 }
             }
         }
