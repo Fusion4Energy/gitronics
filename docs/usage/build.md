@@ -42,6 +42,26 @@ C ============================================================
 
 Gitronics searches all directories listed in `project_roots` (defined in the configuration) for files referenced by stem name. Any file whose stem (name without extension) matches a key in the configuration is a candidate. This means you can organise your project files into subdirectories however you like, as long as each stem name is unique across all `project_roots`.
 
+## Python API
+
+`build_model` is also available as a Python function for use in scripts and notebooks:
+
+```python
+import gitronics
+
+gitronics.build_model(
+    "configurations/in_vessel_only.yaml",
+    "output/",
+)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `config_path` | `str` or `Path` | Path to the configuration YAML file. |
+| `output_path` | `str` or `Path` | Directory to write `assembled.mcnp` into. |
+
+Raises `RuntimeError` on failure with a descriptive message.
+
 ## Logging
 
 Set the `RUST_LOG` environment variable to control verbosity:
