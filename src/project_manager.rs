@@ -48,12 +48,7 @@ impl ProjectManager {
                     .model_config
                     .project_roots()
                     .iter()
-                    .map(|p| {
-                        dunce::canonicalize(p)
-                            .unwrap_or_else(|_| p.clone())
-                            .to_string_lossy()
-                            .to_string()
-                    })
+                    .map(|p| p.to_string_lossy().to_string())
                     .collect::<Vec<_>>()
                     .join(", "),
             })

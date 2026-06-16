@@ -91,7 +91,10 @@ pub enum GitronicsError {
 impl GitronicsError {
     pub fn io_path(path: impl AsRef<Path>, source: io::Error) -> Self {
         Self::IoPath {
-            path: path.as_ref().display().to_string(),
+            path: dunce::canonicalize(path.as_ref())
+                .unwrap_or_else(|_| path.as_ref().to_path_buf())
+                .display()
+                .to_string(),
             source,
         }
     }
