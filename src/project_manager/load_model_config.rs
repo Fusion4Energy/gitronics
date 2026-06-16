@@ -46,6 +46,9 @@ fn load_config_inner(
             .unwrap_or(Path::new("."))
             .join(base_path)
     };
+    let base_path = base_path
+        .canonicalize()
+        .map_err(|source| GitronicsError::io_path(&base_path, source))?;
     // Resolve the base config recursively so the full chain is applied.
     let base = load_config_inner(&base_path, visited)?;
     let merged = config.merge(base);
