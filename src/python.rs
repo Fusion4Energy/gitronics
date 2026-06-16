@@ -1,13 +1,15 @@
 use std::path::PathBuf;
 
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use crate::build_model::build_model;
+use crate::init_logger;
 use crate::run_cli;
 
 #[pyfunction]
 fn run(args: Vec<String>) -> PyResult<()> {
-    use pyo3::exceptions::PyRuntimeError;
+    init_logger();
     // Clap exits the process on --help / bad args; that's acceptable.
     run_cli(args).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
@@ -19,7 +21,7 @@ fn run(args: Vec<String>) -> PyResult<()> {
 ///     output_path: Directory where the assembled model will be written.
 #[pyfunction]
 fn py_build_model(config_path: PathBuf, output_path: PathBuf) -> PyResult<()> {
-    use pyo3::exceptions::PyRuntimeError;
+    init_logger();
     build_model(&config_path, &output_path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
