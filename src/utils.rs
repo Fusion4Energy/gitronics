@@ -158,7 +158,7 @@ pub fn init_logger() {
             record.args()
         )
     });
-    logger.init();
+    logger.try_init().ok();
 }
 
 #[cfg(test)]
