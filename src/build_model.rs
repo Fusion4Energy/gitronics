@@ -1,3 +1,4 @@
+use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry};
 use crate::project_manager::ProjectManager;
 use crate::types::{CellId, EnvelopeName, FillerName, UniverseId};
 use crate::utils::GitronicsError;
@@ -45,6 +46,15 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     info!("Adapting envelope structure with FILL cards");
     add_fill_cards_to_envelopes(&project_manager, &universe_ids, &mut envelope_structure)?;
 
+    // Collect build-report data before fillers are moved into the composed model
+    let report = collect_build_report(
+        config_path,
+        &project_manager,
+        &envelope_structure,
+        &fillers,
+        &universe_ids,
+    )?;
+
     // Compose model
     info!("Composing model");
     fillers.into_iter().for_each(|filler| {
@@ -69,6 +79,11 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     envelope_structure.write_to_file(&assembled_path)?;
     fs::write(output_path.join(".gitignore"), "*\n")?;
 
+    // Write build report
+    info!("Writing HTML build report");
+    let report_path = project_manager.output_path().join("build_report.html");
+    fs::write(&report_path, report.generate_html())?;
+
     info!(
         "Build completed successfully in: {}",
         assembled_path.display()
@@ -78,6 +93,102 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 
 static ENVELOPE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\s*@env:\s*(\w+)\s*").unwrap());
+
+fn collect_build_report(
+    config_path: &Path,
+    project_manager: &ProjectManager,
+    envelope_structure: &Model,
+    fillers: &[Model],
+    universe_ids: &HashMap<FillerName, UniverseId>,
+) -> Result<BuildReport, GitronicsError> {
+    let total_cells =
+        envelope_structure.cells.len() + fillers.iter().map(|f| f.cells.len()).sum::<usize>();
+    let total_surfaces =
+        envelope_structure.surfaces.len() + fillers.iter().map(|f| f.surfaces.len()).sum::<usize>();
+
+    let envelope_entries: Vec<EnvelopeEntry> = project_manager
+        .envelopes_in_config()
+        .map(|env_name| {
+            let filler_name: Option<FillerName> = project_manager
+                .filler_by_envelope(env_name)
+                .and_then(|opt| opt.clone());
+
+            let universe_id = filler_name
+                .as_ref()
+                .and_then(|f| universe_ids.get(f))
+                .copied();
+
+            let transform = filler_name.as_ref().and_then(|f| {
+                project_manager
+                    .transformation(f, env_name)
+                    .ok()
+                    .flatten()
+                    .map(str::to_string)
+            });
+
+            EnvelopeEntry {
+                envelope_name: env_name.clone(),
+                filler_name,
+                universe_id,
+                transform,
+            }
+        })
+        .collect();
+
+    let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
+    for entry in &envelope_entries {
+        if let Some(filler_name) = &entry.filler_name {
+            *filler_envelope_counts
+                .entry(filler_name.clone())
+                .or_insert(0) += 1;
+        }
+    }
+
+    let filler_entries: Vec<FillerEntry> = fillers
+        .iter()
+        .filter_map(|filler| {
+            let name = FillerName::from(filler);
+            let universe_id = *universe_ids.get(&name)?;
+            let envelope_count = *filler_envelope_counts.get(&name).unwrap_or(&0);
+            Some(FillerEntry {
+                universe_id,
+                envelope_count,
+                cell_count: filler.cells.len(),
+                surface_count: filler.surfaces.len(),
+                name,
+            })
+        })
+        .collect();
+
+    Ok(BuildReport {
+        config_path: config_path.display().to_string(),
+        gitronics_version: env!("CARGO_PKG_VERSION"),
+        commit_hash: get_hash_of_project(),
+        date_time: chrono::Utc::now()
+            .format("%Y-%m-%d %H:%M:%S UTC")
+            .to_string(),
+        total_cells,
+        total_surfaces,
+        envelope_entries,
+        filler_entries,
+        materials: project_manager
+            .materials_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
+        tallies: project_manager
+            .tallies_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
+        transforms: project_manager
+            .transforms_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
+        source: project_manager.source_name().map(|n| n.to_string()),
+    })
+}
 
 fn add_fill_cards_to_envelopes(
     project_manager: &ProjectManager,

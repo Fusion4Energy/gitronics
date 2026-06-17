@@ -90,6 +90,26 @@ impl ProjectManager {
     pub fn envelopes_in_config(&self) -> impl Iterator<Item = &EnvelopeName> {
         self.model_config.envelopes().keys()
     }
+
+    /// Returns the list of material file names from the configuration.
+    pub fn materials_names(&self) -> &[FileName] {
+        self.model_config.materials()
+    }
+
+    /// Returns the list of tally file names from the configuration.
+    pub fn tallies_names(&self) -> &[FileName] {
+        self.model_config.tallies()
+    }
+
+    /// Returns the list of transformation file names from the configuration.
+    pub fn transforms_names(&self) -> &[FileName] {
+        self.model_config.transformations()
+    }
+
+    /// Returns the source file name from the configuration, if any.
+    pub fn source_name(&self) -> Option<&FileName> {
+        self.model_config.source()
+    }
 }
 
 /// Indexes project files using roots resolved from a loaded configuration.

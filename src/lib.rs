@@ -1,4 +1,5 @@
 mod build_model;
+mod build_report;
 mod cli;
 mod migrate_model;
 mod model_config;
