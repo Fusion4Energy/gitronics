@@ -1,6 +1,6 @@
 site_name: Gitronics
 site_description: Build MCNP neutronics models from modular components
-site_url: https://fusion4energy.github.io/gitronics/latest/
+site_url: https://fusion4energy.github.io/gitronics/
 repo_url: https://github.com/Fusion4Energy/gitronics
 repo_name: Fusion4Energy/gitronics
 edit_uri: edit/main/docs/
@@ -39,10 +39,12 @@ plugins:
   - search
   - autorefs
 
+hooks:
+  - docs/hooks/version_from_git.py
+
 extra:
   version:
     provider: mike
-    default: latest
 
 markdown_extensions:
   - admonition

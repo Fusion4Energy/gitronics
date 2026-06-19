@@ -33,7 +33,7 @@ Building from source requires:
 - [maturin](https://github.com/PyO3/maturin) ≥ 1.0
 
 ```bash
-git clone https://github.com/gitronics/gitronics  # TODO: update URL
+git clone https://github.com/Fusion4Energy/gitronics
 cd gitronics
 pip install maturin
 maturin develop --release
