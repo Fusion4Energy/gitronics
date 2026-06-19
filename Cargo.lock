@@ -635,9 +635,9 @@ dependencies = [
 
 [[package]]
 name = "migjorn"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31cf1891e03ac7a0e23dd2310b1714ba454d5bfd1936851aa2ce31b7492f748"
+checksum = "d3f2fe960921f8c049fc7ac5536e96cba576e902cf040c258e8092eabb9eeaaf"
 dependencies = [
  "clap",
  "memchr",
