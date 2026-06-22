@@ -69,7 +69,11 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
-  - Getting Started: getting-started.md
+  - Getting Started:
+      - Overview: getting-started.md
+      - Migrate an Existing Model: getting-started/migrate.md
+      - Build a Model: getting-started/build.md
+      - Start a New Project: getting-started/new-project.md
   - Usage:
       - Build: usage/build.md
       - Migrate: usage/migrate.md
