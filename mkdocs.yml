@@ -1,6 +1,6 @@
 site_name: Gitronics
 site_description: Build MCNP neutronics models from modular components
-site_url: https://fusion4energy.github.io/gitronics/latest/
+site_url: https://fusion4energy.github.io/gitronics/
 repo_url: https://github.com/Fusion4Energy/gitronics
 repo_name: Fusion4Energy/gitronics
 edit_uri: edit/main/docs/
@@ -28,6 +28,7 @@ theme:
     - navigation.expand
     - navigation.path
     - navigation.top
+    - navigation.footer
     - search.highlight
     - search.share
     - content.code.copy
@@ -39,10 +40,12 @@ plugins:
   - search
   - autorefs
 
+hooks:
+  - docs/hooks/version_from_git.py
+
 extra:
   version:
     provider: mike
-    default: latest
 
 markdown_extensions:
   - admonition
@@ -67,11 +70,19 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
-  - Getting Started: getting-started.md
+  - Getting Started:
+      - Overview: getting_started.md
+      - Concepts: getting_started/concepts.md
+      - Project Structure: getting_started/project_structure.md
+      - File Types: getting_started/file_types.md
+      - Configuration File: getting_started/configuration_file.md
+      - Building a Model: getting_started/building_a_model.md
+      - Card ID Numbers: getting_started/card_id_numbers.md
+      - Migrating an Existing Model: getting_started/migrating.md
+      - Starting a New Project: getting_started/new_project.md
+      - Assessments: getting_started/assessments.md
   - Usage:
       - Build: usage/build.md
       - Migrate: usage/migrate.md
-      - Configuration Reference: usage/configuration.md
-  - Best Practices: best-practices.md
+  - Best Practices: best_practices.md
   - Examples: examples.md
-  - Changelog: changelog.md

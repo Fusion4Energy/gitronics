@@ -19,6 +19,12 @@ After installation the `gitronics` command is available in your shell:
 gitronics --help
 ```
 
+!!! note
+    Some corporate computers do not allow the execution of non-whitelisted executable files. If when running `gitronics` you get an error like `Access denied`, you could try running the command as a Python module instead:
+    ```bash
+    python -m gitronics --help
+    ```
+
 ## Install from source
 
 Building from source requires:
@@ -27,21 +33,10 @@ Building from source requires:
 - [maturin](https://github.com/PyO3/maturin) ≥ 1.0
 
 ```bash
-git clone https://github.com/gitronics/gitronics  # TODO: update URL
+git clone https://github.com/Fusion4Energy/gitronics
 cd gitronics
 pip install maturin
 maturin develop --release
-```
-
-## Verifying the installation
-
-```bash
-gitronics --help
-# Usage: gitronics <COMMAND>
-# Commands:
-#   build    Build an MCNP model from a project configuration
-#   migrate  Take a traditional monolithic MCNP model and migrate it to a Gitronics project structure
-#   help     Print this message or the help of the given subcommand(s)
 ```
 
 ## Building the documentation locally

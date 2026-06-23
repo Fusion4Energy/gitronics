@@ -34,12 +34,16 @@ output/
 ```
 
 The `build` command reads a configuration file, loads all referenced components, inserts `FILL` cards into the envelope cells, and writes a single self-contained MCNP input file.
+It is highly recommended to use [Git](https://git-scm.com/) to track changes to your project files.
+
+If you have never used Gitronics before, please take a few minutes to read the whole [Getting Started](getting_started.md) guide to understand the program.
 
 ---
 
 ## Quick links
 
 - [Installation](installation.md)
-- [Getting Started](getting-started.md)
-- [Configuration Reference](usage/configuration.md)
+- [Getting Started](getting_started.md)
+- [Configuration File](getting_started/configuration_file.md)
+- [Usage](usage/build.md)
 - [Examples](examples.md)
