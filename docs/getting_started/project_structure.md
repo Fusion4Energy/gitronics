@@ -19,8 +19,8 @@ reference_model/
     │   ├── general_materials.mat
     │   └── alternative_library.mat
     ├── sources/
-    │   ├── plasma_source.src
-    │   └── spherical_void.src
+    │   ├── plasma_source.source
+    │   └── spherical_void.source
     ├── tallies/
     │   ├── radmaps.tally
     │   └── stochastic_volume.tally
@@ -32,7 +32,7 @@ Gitronics will only discover files that have the correct file extension, as foll
 
 - Geometry: `.mcnp`
 - Materials: `.mat`
-- Source: `.src`
+- Source: `.source`
 - Tallies: `.tally`
 - Transformations: `.transform`
 - Metadata: `.metadata`

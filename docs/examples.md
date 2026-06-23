@@ -58,5 +58,3 @@ import gitronics
 # Build a model — equivalent to running the CLI
 gitronics.run(["gitronics", "build", "configurations/baseline.yaml", "-o", "output/"])
 ```
-
-<!-- TODO: Expand with richer Python workflow examples if the Python API grows -->

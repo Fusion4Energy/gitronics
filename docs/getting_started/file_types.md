@@ -83,7 +83,7 @@ The cells of the files should already include the `U=<universe_id>` card, where 
 
 ## Data card files
 
-These kind of files contain MCNP data cards and they must have one of the following extensions: `.mat`, `.src`, `.tally`, or `.transform`.
+These kind of files contain MCNP data cards and they must have one of the following extensions: `.mat`, `.source`, `.tally`, or `.transform`.
 The choice of the file extension is only for organizational purposes, Gitronics does not enforce any restriction on the content of these files. For example, a file with the `.mat` extension can contain tally cards, and it will still be read by Gitronics.
 
 A data card file is not a valid MCNP input file on its own.
@@ -120,10 +120,10 @@ Any content after that will be ignored.
     ```
 
 !!! note "Arbitrary data card files"
-    There are dozens of different types of data cards in MCNP and all of them can be included in any data card file. However, the recommended practice is to group the run parameters like `NPS`, `MODE`, `WWINP`, `PRNTDMP` and the like into the `.src` source file.
+    There are dozens of different types of data cards in MCNP and all of them can be included in any data card file. However, the recommended practice is to group the run parameters like `NPS`, `MODE`, `WWINP`, `PRNTDMP` and the like into the `.source` source file.
 
 !!! warning "Number of data card files"
-    Any number of data card files can be used to assemble a model with only one limitation. Only one `.src` file can be specified in the configuration.
+    Any number of data card files can be used to assemble a model with only one limitation. Only one `.source` file can be specified in the configuration.
 
 ## Metadata files
 
@@ -136,7 +136,7 @@ These metadata files can contain any information, Gitronics will not enforce any
 These files are optional for any file except for filler models.
 Filler models must have a metadata file with at least the `transformation` field, which is a dictionary that maps any envelope name that the filler model can be applied to, to a transformation string.
 The transformation string can be a transformation card like `(123)` or a transformation definition like `(10.1 0 0)`.
-If the transformation definition is preceeded by a `*`, it will be interpreted as a transformation in degrees instead of radians like in `*(0.001 0.001 0.001 70 20 90 160 70 90 90 90 0)`.
+If the transformation definition is preceded by a `*`, it will be interpreted as a transformation in degrees instead of radians like in `*(0.001 0.001 0.001 70 20 90 160 70 90 90 90 0)`.
 The string can also be left empty or with the `null` value to indicate that no transformation should be applied to the filler model when it is inserted into that envelope cell.
 
 ??? note "Metadata file example"

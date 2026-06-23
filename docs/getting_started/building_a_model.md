@@ -35,7 +35,7 @@ When running the `gitronics build` command, the following steps are performed:
 While the build is running, Gitronics will print `INFO` and `WARNING` messages to the terminal indicating the progress of the assembly.
 
 !!! tip "`WARNING` messages"
-    Watch out for `WARNING` messages, they indicate potential mistakes that will not stop the build, for example, the existance of envelope cells in the envelope structure that are not referenced in the configuration file. 
+    Watch out for `WARNING` messages, they indicate potential mistakes that will not stop the build, for example, the existence of envelope cells in the envelope structure that are not referenced in the configuration file. 
     If the intention was to leave them empty, it is better to explicitly declare them as `null` in the configuration file to make sure they are not forgotten via `envelope_name: null`.
 
 ??? note "Example of `build` logging"

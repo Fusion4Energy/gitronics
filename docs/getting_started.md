@@ -7,7 +7,7 @@ This [Getting Started](getting_started.md) guide will help you understand the Gi
 It is highly recommended that you read the whole guide before starting to use Gitronics, it takes only a few minutes.
 The guide is organized into the following sections:
 
-1. [Concepts](getting_started/concepts.md) — basic concepts and keywordsof Gitronics.
+1. [Concepts](getting_started/concepts.md) — basic concepts and keywords of Gitronics.
 2. [Project Structure](getting_started/project_structure.md) — how to organize your model into a Gitronics project.
 3. [File Types](getting_started/file_types.md) — the different types of files that can be part of a Gitronics project.
 4. [Configuration File](getting_started/configuration_file.md) — how to define and use configuration files in Gitronics.
@@ -26,4 +26,3 @@ Once you have read the guide, you can learn how to install Gitronics, learn abou
 - [Usage/Migrate](usage/migrate.md) — API for the `migrate` command.
 - [Usage/Build](usage/build.md) — API for the `build` command.
 - [Examples](examples.md) — example Gitronics projects to get you started.
-- 
