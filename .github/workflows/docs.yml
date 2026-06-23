@@ -3,7 +3,8 @@ name: Docs
 on:
     push:
         tags:
-            - "v[0-9]+.[0-9]+.[0-9]*"
+            # GitHub Actions uses glob patterns here (not regex).
+            - "v*.*.*"
     # Allow manual triggering from the Actions tab
     workflow_dispatch:
 
@@ -32,16 +33,27 @@ jobs:
             - name: Extract version from tag
               id: version
               run: |
-                  # Strip the leading "v" so MkDocs sees "1.2.3", not "v1.2.3"
-                  VERSION="${GITHUB_REF_NAME#v}"
+                  if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+                      # Strip the leading "v" so MkDocs sees "1.2.3", not "v1.2.3"
+                      VERSION="${GITHUB_REF_NAME#v}"
+                  else
+                      # For manual runs, resolve the most recent semantic tag in the repo.
+                      VERSION="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1 | sed 's/^v//')"
+                  fi
+
+                  if [[ -z "$VERSION" ]]; then
+                      echo "No semantic version tag found (expected pattern: v*.*.*)." >&2
+                      exit 1
+                  fi
+
                   echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
             - name: Build & deploy to GitHub Pages
               run: |
                   git config user.name  "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
-                                    # Deploy this version and update the "latest" alias
+                  # Deploy this version and update the "latest" alias
                   pip install mike
                   mike deploy --push --update-aliases "${{ steps.version.outputs.version }}" latest
-                                    # Set the site root to the numeric release version
-                                    mike set-default --push "${{ steps.version.outputs.version }}"
+                  # Keep docs root pinned to latest so it always follows new releases.
+                  mike set-default --push latest
