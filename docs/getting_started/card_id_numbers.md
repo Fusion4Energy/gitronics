@@ -1,7 +1,7 @@
 # Card ID numbers
 
 Whenever a file of any type is loaded by Gitronics during a `build` command, Gitronics will copy and paste the cards into a single model.
-If two different files share the same card ID number, for example, two different filler models share a surface, Gitronics will include that surface twice in the assembled model, which will cause a validation error crashing the build process.
+If two different files share the same card ID number, for example, two different filler models sharing a surface, Gitronics will include that surface twice in the assembled model, which will cause a validation error, crashing the build process.
 Gitronics will warn about which card IDs are duplicated with an error message.
 
 [Migjorn](https://github.com/Fusion4Energy/migjorn), the parser used internally by Gitronics, is capable of renumbering on the fly any card ID.

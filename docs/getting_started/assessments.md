@@ -1,6 +1,6 @@
 # Assessments
 
-Gitronics can also be used to manage the specific changes required to the model for a specific assessment.
+Gitronics can also be used to manage the specific changes required to a model for a specific assessment.
 The recommended practice is to create a new Git branch for the assessment.
 Then, create a new directory that will contain all the assessment-specific files (e.g. new filler models, tallies, configuration files, etc.).
 This directory could also contain post-processing scripts, organization files and others.
@@ -30,4 +30,4 @@ gitronics_project/
         └── ... 
 ```
 
-After the assessment is complete, the branch can be stored as a file via `git bundle`, and the assessment-specific files can be deleted from the main branch to keep it clean.
+After the assessment is complete, the branch can be stored as a file via `git bundle`, and then deleted from the repository to keep the main branch clean.

@@ -42,7 +42,7 @@ Each universe found in the model is written to its own `universe_<id>.mcnp` file
 
 ### Metadata files
 
-Each filler model is accompanied by a `.metadata` YAML file. These files describe how the filler should be placed and can specify per-envelope transformation cards. Edit them to add transformations after migration.
+Each filler model is accompanied by a `.metadata` YAML file. These files describe how the filler should be placed and can specify per-envelope transformation cards.
 
 ## Verifying the round-trip
 
@@ -51,13 +51,8 @@ After migration, rebuild the model and verify it matches the original:
 ```bash
 gitronics build tokamak_project/configurations/baseline.yaml \
     --output-path tokamak_project/output
-diff models/tokamak_2025.mcnp tokamak_project/output/assembled.mcnp
 ```
-
-!!! note
-    Minor formatting differences (whitespace, line ordering within a section) are expected. The geometry and physics data should be functionally identical.
 
 ## Limitations
 
 - Data cards (materials, tallies, source) are written to a single `data_cards.source` file. After migration you may wish to split these into separate files under `reference_model/data_cards/`.
-- The migration does not attempt to detect repeated structures or simplify the model.
