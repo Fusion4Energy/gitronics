@@ -20,7 +20,7 @@ gitronics --help
 ```
 
 !!! note
-    Some corporate computers do not allow the execution of non-whitelisted executable files. If when running `gitronics` you get an error like `Access denied` you could try running the command as a Python module instead:
+    Some corporate computers do not allow the execution of non-whitelisted executable files. If when running `gitronics` you get an error like `Access denied`, you could try running the command as a Python module instead:
     ```bash
     python -m gitronics --help
     ```
