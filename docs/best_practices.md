@@ -1,24 +1,54 @@
 # Best Practices
 
-## Project layout
+This document lists some recommended practices for managing your Gitronics project. 
+Following these practices will help you avoid common pitfalls and make your project easier to maintain.
 
-### Keep one project per repository
+## Modularization
 
-Each Gitronics project should live in its own repository (or a well-isolated subdirectory in a mono-repo). This makes branch history, tagging, and code review meaningful.
+Every file (or system) in a Gitronics project should be independent of the others.
+This means that a filler model should not reference cells or surfaces from other filler models or the envelope structure directly. 
 
-### Use `.gitignore` in `output/`
+- Filler models should not share surfaces.
+- Filler models should not share surfaces with the envelope structure.
+- Avoid the use of `#` cells. If used, they should be defined in the same file, not a reference to a cell defined in other file.
 
-The `migrate` command creates an `output/.gitignore` that ignores all files in that directory. Never commit assembled MCNP files — they are build artefacts and can be reproduced from the sources.
+## Envelope cell definition
 
-### Prefer shallow directory trees for `project_roots`
+It is recommended to place the envelope name place holder at the end of the cell definition.
 
-Deeply nested source trees slow down file discovery. Keep filler models, data cards, and the envelope structure in predictable directories at one or two levels deep.
+??? note "Example"
+    ```
+    21055 0    1 -2 8 -7 -6 -5
+               imp:n=1.0   imp:p=1.0   
+            $ @env:toroidal_field_coil_18
+    ```
 
----
+!!! Warning "Space for the `FILL` card"
+    The `FILL` card will be inserted by Gitronics right after the last cell parameter of the cell definition (after the `imp:p=1.0` in the example above). If there is not space to the right of the last parameter, the newly added `FILL` card may break the maximum line length of MCNP. To avoid this, it is recommended to leave some space after the last parameter of the cell definition before the envelope name placeholder as in the example above.
 
-## Naming conventions
+## Title cards
 
-### Use descriptive, lowercase stem names
+All the Gitronic files (geometry and data card files) should have a title card at the top of the file. 
+The title card is a single line that will be ignored by Gitronics when assembling the model, but it is useful to provide a brief description for the user when viewing the independent file.
+
+## Do not commit large files
+
+The Gitronics methodology is designed to manage the source files of a model, not the assembled MCNP input files.
+Via the information in the header of the `assembled.mcnp` file, it is possible to reproduce the exact same model from the source files. Therefore, it is not necessary to commit the assembled MCNP input files to the repository.
+
+Commiting large files to the repository will make it slower to clone and checkout branches, and it will also make it harder to track changes.
+
+!!! tip "Use `.gitignore`"
+    Make use of the `.gitignore` file to avoid committing unnecessary files. You can place a `.gitignore` file with the content `*` in a folder to ignore all files in that folder (like the `output/` folder).
+    You can ignore specific files by name or extension. 
+    For example, to ignore all `.mcnp` files of a folder, you can add the line `*.mcnp` to the `.gitignore` file.
+
+!!! Warning "Do not commit binary files"
+    It is considered a bad practice to commit binary files to the repository (Excel files, runtpe, etc). 
+    Binary files cannot be diffed, and they will make the repository size grow unnecessarily.
+    Even if the files are text-based, do not commit large files like the `output` file of an MCNP run.
+
+## Use descriptive, lowercase stem names
 
 Stem names appear in configuration files and in assembled-model metadata. Choose names that describe the *physics content*, not the version or date:
 
@@ -28,72 +58,28 @@ Stem names appear in configuration files and in assembled-model metadata. Choose
 | `mat_13` | `reduced_activation_ferritic_steel` |
 | `tally1` | `tritium_breeding_ratio` |
 
-### Match envelope names to physical regions
+## Nested universes
 
-Envelope names in the configuration file (`envelopes:` map) must match the placeholder comments written in the envelope structure file. Naming them after the physical component they represent makes configurations self-documenting.
+Each filler model file should contain only one universe.
+The `$ @env:<envelope_name>` placeholder will only work on envelope structure files.
 
----
+If a nested universe is absolutely needed, place the level 2 universe in the same file as the level 1 universe.
+Make sure that the level 1 universe have the `FILL` cards correctly defined for the level 2 universe, which is placed right after the definition of the level 1.
 
-## Configuration management
+## Track origin of the model in the metadata
 
-### Use a baseline + override hierarchy
+Add a field like `reference` or similar to the `.metadata` files of each filler model to track the origin of the model. 
+This is useful for future reference and for understanding the provenance of the model.
 
-Define a `baseline.yaml` that represents the full reference model. Create separate configuration files for each assessment or variant that override only the fields that differ. This minimises duplication and makes it easy to see what changed between assessments.
-
-```
-configurations/
-├── baseline.yaml               ← full reference model
-├── void_check.yaml             ← overrides: baseline; all envelopes → null
-├── sensitivity_study_A.yaml    ← overrides: baseline; changes one filler
-└── assessment_specific/
-    └── design_point_X.yaml     ← multi-level override chain
-```
-
-### Pin `project_roots` carefully
-
-`project_roots` is resolved relative to the configuration file. Using `[..]` (the parent directory of `configurations/`) is the conventional choice and keeps paths stable when the project is cloned to different machines.
-
----
-
-## Filler model design
-
-### One universe per file
-
-Each filler model file should contain exactly one universe. This keeps the granularity consistent and makes `git blame` and `git log` useful at the component level.
-
-### Record transformation intent in metadata
-
-If a filler model is placed with a transformation (`TR` card), document that in the `.metadata` file so the relationship between filler geometry and its placement is explicit. Avoid hardcoding transformations inside the filler MCNP file itself.
-
-### Avoid cross-references between fillers
-
-Filler models should be self-contained. Cells in one filler should not reference surfaces or materials defined in another filler. Use the envelope structure for any shared bounding surfaces.
-
----
-
-## Reproducibility
-
-### Tag releases
+## Tag releases
 
 Every time you build a model for a formal assessment or publication, create a git tag. Gitronics records the commit hash in the assembled file's metadata, but a tag makes it trivially easy to check out the exact source state later.
 
 ```bash
-git tag -a v1.2.0 -m "Design freeze for TDR submission"
+git tag -a v1.2.0 -m "Design freeze for FDR submission"
 git push origin v1.2.0
 ```
 
-### Include metadata files in version control
+## Include metadata files in version control
 
 The `.metadata` files alongside each filler model are part of the source. Commit them alongside the `.mcnp` files.
-
----
-
-## Performance
-
-### Use `RUST_LOG=info` during development
-
-The `info` log level prints the files being loaded and the transformations being applied without being too verbose. Use `debug` only when diagnosing unexpected behaviour.
-
-### Keep filler models small
-
-Very large filler models (tens of thousands of cells) slow down parsing. If a sub-model has grown large, consider whether it can be further decomposed into nested universes.
