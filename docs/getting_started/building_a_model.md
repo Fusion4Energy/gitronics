@@ -1,4 +1,4 @@
-# Build Model
+# Building a Model
 
 Once a configuration file is ready, the model can be built with the `gitronics build` command.
 After the [installation of Gitronics](../installation.md) is complete, the command can be run from the terminal.
@@ -34,10 +34,6 @@ When running the `gitronics build` command, the following steps are performed:
 
 While the build is running, Gitronics will print `INFO` and `WARNING` messages to the terminal indicating the progress of the assembly.
 
-!!! tip "`WARNING` messages"
-    Watch out for `WARNING` messages, they indicate potential mistakes that will not stop the build, for example, the existence of envelope cells in the envelope structure that are not referenced in the configuration file. 
-    If the intention was to leave them empty, it is better to explicitly declare them as `null` in the configuration file to make sure they are not forgotten via `envelope_name: null`.
-
 ??? note "Example of `build` logging"
     ```
     [2026-06-23 14:38:02 INFO gitronics] Starting model build process for: configurations/valid_configuration.yaml
@@ -54,6 +50,10 @@ While the build is running, Gitronics will print `INFO` and `WARNING` messages t
     [2026-06-23 14:38:02 INFO gitronics] Build completed successfully in: output/assembled.mcnp
     ```
 
+!!! tip "`WARNING` messages"
+    Watch out for `WARNING` messages, they indicate potential mistakes that will not stop the build, for example, the existence of envelope cells in the envelope structure file that are not referenced in the configuration. 
+    If the intention was to leave them empty, it is better to explicitly declare them as `null` in the configuration file to make sure they are not forgotten: `envelope_name: null`.
+
 ## Header
 
 The `assembled.mcnp` file will contain a header comment at the top of the file like:
@@ -69,5 +69,5 @@ C ============================================================
 
 The first information line shows the Gitronics version used to build the model.
 The second line shows the configuration file used to build the model, relative to the current working directory.
-The third line shows the Git commit hash of the repository at the time of the build.
+The third line shows the Git commit hash of the **Gitronics project** repository at the time of the build.
 The fourth line shows the date and time when the build was performed.

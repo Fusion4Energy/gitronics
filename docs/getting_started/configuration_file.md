@@ -1,6 +1,6 @@
 # Configuration file
 
-This is a YAML file that declares which filler models and data cards are used to assemble a model.
+This is a [YAML](https://yaml.org/) file that declares which filler models and data cards are used to assemble a model.
 The configuration file does not need to be in the `reference_model` directory, it can be anywhere in the project.
 For example:
 
@@ -78,13 +78,14 @@ Only one source file can be specified, but any number of materials, transformati
 ### `envelopes`
 
 This field is a dictionary that maps envelope cell names to filler model file stems.
-If an envelope cell name appears in the dictionary but is not found in the envelope structure, Gitronics will raise an error.
+If an envelope cell name appears in the dictionary but is not found in the envelope structure file, Gitronics will raise an error.
 
 ## Overriding other configuration
 
 If a configuration file specifies the `overrides` field, it will inherit from the parent configuration file. The parent is loaded first and the current file is merged on top of it. Fields present in the current file take precedence; the parent provides defaults.
 
 The overriding rules are as follows:
+
 - The field `project_roots` is not inherited, it must be specified in the current configuration file.
 - The fields `envelope_structure`, `source`, `materials`, `transformations`, and `tallies` are inherited, but they can be overridden in the current configuration file. If the current file defines the field, the parent value is ignored.
 - The field `envelopes` is inherited and merged entry-by-entry. The current file can add new envelopes or change specific ones without repeating the full list. If an envelope name is present in both the parent and the current configuration, the current value takes precedence.

@@ -2,7 +2,7 @@
 
 **Gitronics** is a tool for assembling [MCNP](https://mcnp.lanl.gov/) neutronics models from modular, version-controlled components.
 
-Instead of maintaining a single monolithic MCNP input file, Gitronics lets you decompose a model into independent universe *filler models*, an *envelope structure*, and separate data cards (materials, sources, tallies, transformations). These components are assembled at build time according to a YAML configuration file.
+Instead of maintaining a single monolithic MCNP input file, Gitronics lets you decompose a model into independent universe *filler models*, an *envelope structure*, and separate data cards (materials, sources, tallies, transformations). These components are assembled at build time according to a [YAML](https://yaml.org/) configuration file.
 
 This workflow enables:
 
