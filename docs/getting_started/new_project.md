@@ -29,4 +29,4 @@ envelopes:
   my_envelope: my_filler_model
 ```
 
-See the [Configuration Reference](../usage/configuration.md) for all available keys.
+See the [Configuration Reference](configuration_file.md) for all available keys.

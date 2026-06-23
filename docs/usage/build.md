@@ -26,6 +26,10 @@ On success, the following files are written to `--output-path`:
 | File | Description |
 |---|---|
 | `assembled.mcnp` | The complete, self-contained MCNP input deck. |
+| `build_report.html` | A report of the build process, including a list of all files used and the envelope assignation. |
+| `.gitignore` | A file to ignore the contents of the directory in Git. |
+
+The `.gitignore` file is written to the output directory to prevent accidentally committing the assembled model and report to version control. 
 
 The top of `assembled.mcnp` contains a metadata comment block:
 
@@ -40,7 +44,8 @@ C ============================================================
 
 ## How files are located
 
-Gitronics searches all directories listed in `project_roots` (defined in the configuration) for files referenced by stem name. Any file whose stem (name without extension) matches a key in the configuration is a candidate. This means you can organise your project files into subdirectories however you like, as long as each stem name is unique across all `project_roots`.
+Gitronics recursively searches all directories listed in `project_roots` (defined in the configuration) for files referenced by stem name. 
+This means you can organise your project files into subdirectories however you like, as long as each stem name is unique across all `project_roots`.
 
 ## Python API
 
