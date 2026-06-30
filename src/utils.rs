@@ -7,6 +7,7 @@
 
 use crate::types::{EnvelopeName, FileName, FillerName};
 use log::LevelFilter;
+use path_clean::PathClean;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::io;
@@ -90,11 +91,15 @@ pub enum GitronicsError {
 
 impl GitronicsError {
     pub fn io_path(path: impl AsRef<Path>, source: io::Error) -> Self {
+        let path_ref = path.as_ref();
+
+        let cleaned_path = dunce::canonicalize(path_ref)
+            .unwrap_or_else(|_| path_ref.to_path_buf().clean())
+            .display()
+            .to_string();
+
         Self::IoPath {
-            path: dunce::canonicalize(path.as_ref())
-                .unwrap_or_else(|_| path.as_ref().to_path_buf())
-                .display()
-                .to_string(),
+            path: cleaned_path,
             source,
         }
     }
@@ -210,5 +215,20 @@ mod tests {
         File::create(&file2_path).unwrap();
         let err = get_file_paths(dir.path()).unwrap_err();
         assert!(err.to_string().contains("Duplicate file name `file1`"));
+    }
+
+    #[test]
+    fn test_io_path_normalizes_parent_segments_when_not_canonicalizable() {
+        let err = GitronicsError::io_path(
+            Path::new("non_existing/../clean/path.yaml"),
+            io::Error::new(io::ErrorKind::NotFound, "missing"),
+        );
+
+        match err {
+            GitronicsError::IoPath { path, .. } => {
+                assert_eq!(Path::new(&path), Path::new("clean/path.yaml"));
+            }
+            _ => panic!("Expected IoPath error"),
+        }
     }
 }
