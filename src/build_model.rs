@@ -92,7 +92,7 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 }
 
 static ENVELOPE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\$\s*@env:\s*(\w+)\s*").unwrap());
+    LazyLock::new(|| Regex::new(r"\$\s*@env:\s*([[:alnum:]_.-]+)\s*").unwrap());
 
 fn collect_build_report(
     config_path: &Path,

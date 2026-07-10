@@ -15,10 +15,18 @@ example_project/
 └── reference_model/
     ├── envelope_structure.mcnp
     ├── envelope_structure.metadata
-    └── filler_models/
-        ├── filler_model_1.mcnp
-        ├── filler_model_1.metadata
-        └── filler_model_2.mcnp
+    ├── filler_models/
+    │   ├── filler_model_1.mcnp
+    │   ├── filler_model_1.metadata
+    │   └── filler_model_2.mcnp
+    ├── source/
+    │   └── volumetric_source.mcnp
+    ├── materials/
+    │   └── materials.mcnp
+    ├── transformations/
+    │   └── my_transform.mcnp
+    └── tallies/
+      └── fine_mesh.mcnp
 ```
 
 ### Configuration

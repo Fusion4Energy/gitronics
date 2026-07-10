@@ -14,6 +14,8 @@ This workflow enables:
 - **Parallelism** — teams can develop different sub-models independently.
 - **Reproducibility** — each assembled model records the git commit hash and build timestamp in its metadata.
 
+The Gitronics methodology is already used to maintain the most complex neutronics models of the [ITER](https://www.iter.org/) fusion reactor, and [JT-60SA](https://www.jt60sa.org/) tokamak.
+
 ---
 
 ## How it works
@@ -40,6 +42,14 @@ The `build` command reads a configuration file, loads all referenced components,
 It is highly recommended to use [Git](https://git-scm.com/) to track changes to your project files.
 
 If you have never used Gitronics before, please take a few minutes to read the whole [Getting Started](getting_started.md) guide to understand the methodology.
+
+---
+
+## Publication
+
+Gitronics is described in the following publication:
+
+- Cubi, A., et al. *Novel modular and Git-based approach for the management and development of radiation transport models*. [Fusion Engineering and Design](https://www.sciencedirect.com/journal/fusion-engineering-and-design), 2025. [https://doi.org/10.1016/j.fusengdes.2025.115248](https://doi.org/10.1016/j.fusengdes.2025.115248)
 
 ---
 

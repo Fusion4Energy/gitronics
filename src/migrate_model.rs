@@ -230,7 +230,6 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let output_path = temp_dir.path().join("output.mcnp");
         let result = migrate_model(&mcnp_input, &output_path);
-        dbg!(&result);
         assert!(result.is_ok());
     }
 }

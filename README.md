@@ -15,6 +15,8 @@ Gitronics lets you decompose a monolithic [MCNP](https://mcnp.lanl.gov/) input f
 
 **Full documentation: [fusion4energy.github.io/gitronics](https://fusion4energy.github.io/gitronics/latest/)**
 
+The Gitronics methodology is already used to maintain the most complex neutronics models of the [ITER](https://www.iter.org/) fusion reactor, and [JT-60SA](https://www.jt60sa.org/) tokamak.
+
 ## Why?
 
 | Problem with monolithic models | Gitronics solution |
@@ -97,6 +99,13 @@ Configurations support inheritance: a variant config can set `overrides: baselin
 The full documentation covers installation, CLI reference, configuration options, best practices, and worked examples:
 
 **[fusion4energy.github.io/gitronics](https://fusion4energy.github.io/gitronics/latest/)**
+
+## Publication
+
+Gitronics is described in the following publication:
+
+- Cubi, A., et al. *Novel modular and Git-based approach for the management and development of radiation transport models*. [Fusion Engineering and Design](https://www.sciencedirect.com/journal/fusion-engineering-and-design), 2025. [https://doi.org/10.1016/j.fusengdes.2025.115248](https://doi.org/10.1016/j.fusengdes.2025.115248)
+
 
 ## License
 
