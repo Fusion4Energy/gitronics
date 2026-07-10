@@ -11,14 +11,14 @@ theme:
   favicon: assets/logo.png
   palette:
     - scheme: default
-      primary: deep purple
-      accent: teal
+      # primary: deep purple
+      # accent: teal
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: deep purple
-      accent: teal
+      # primary: deep purple
+      # accent: teal
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
