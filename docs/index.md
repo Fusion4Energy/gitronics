@@ -43,6 +43,14 @@ If you have never used Gitronics before, please take a few minutes to read the w
 
 ---
 
+## Publication
+
+Gitronics is described in the following publication:
+
+- Cubi, A., et al. *Novel modular and Git-based approach for the management and development of radiation transport models*. [Fusion Engineering and Design](https://www.sciencedirect.com/journal/fusion-engineering-and-design), 2025. [https://doi.org/10.1016/j.fusengdes.2025.115248](https://doi.org/10.1016/j.fusengdes.2025.115248)
+
+---
+
 ## Quick links
 
 - [Installation](installation.md)

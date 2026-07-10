@@ -98,6 +98,13 @@ The full documentation covers installation, CLI reference, configuration options
 
 **[fusion4energy.github.io/gitronics](https://fusion4energy.github.io/gitronics/latest/)**
 
+## Publication
+
+Gitronics is described in the following publication:
+
+- Cubi, A., et al. *Novel modular and Git-based approach for the management and development of radiation transport models*. [Fusion Engineering and Design](https://www.sciencedirect.com/journal/fusion-engineering-and-design), 2025. [https://doi.org/10.1016/j.fusengdes.2025.115248](https://doi.org/10.1016/j.fusengdes.2025.115248)
+
+
 ## License
 
 [EUPL-1.2](LICENSE)
