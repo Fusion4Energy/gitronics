@@ -14,6 +14,8 @@ This workflow enables:
 - **Parallelism** — teams can develop different sub-models independently.
 - **Reproducibility** — each assembled model records the git commit hash and build timestamp in its metadata.
 
+The Gitronics methodology is already used to maintain the most complex neutronics models of the [ITER](https://www.iter.org/) fusion reactor, and [JT-60SA](https://www.jt60sa.org/) tokamak.
+
 ---
 
 ## How it works

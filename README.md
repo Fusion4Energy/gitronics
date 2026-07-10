@@ -15,6 +15,8 @@ Gitronics lets you decompose a monolithic [MCNP](https://mcnp.lanl.gov/) input f
 
 **Full documentation: [fusion4energy.github.io/gitronics](https://fusion4energy.github.io/gitronics/latest/)**
 
+The Gitronics methodology is already used to maintain the most complex neutronics models of the [ITER](https://www.iter.org/) fusion reactor, and [JT-60SA](https://www.jt60sa.org/) tokamak.
+
 ## Why?
 
 | Problem with monolithic models | Gitronics solution |
