@@ -2,14 +2,13 @@ use crate::{
     build_model,
     model_config::ModelConfig,
     types::{EnvelopeName, FileName, FillerMetadata, FillerName},
-    utils::GitronicsError,
+    utils::{GitronicsError, parse_model_file},
 };
 use indexmap::IndexMap;
 use log::info;
-use migjorn::{Card, CellCard, GeoElement, Model, ParamType};
+use migjorn::Model;
 use rayon::prelude::*;
 use std::{
-    collections::HashSet,
     fs::{self, File, create_dir_all},
     io::Write,
     path::Path,
@@ -17,76 +16,66 @@ use std::{
 
 pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), GitronicsError> {
     info!("Reading MCNP model from file: {}", mcnp_input.display());
-    let model =
-        Model::from_file(mcnp_input).map_err(|err| GitronicsError::FailedToLoadMCNPFile {
-            file_name: mcnp_input.display().to_string().into(),
-            error: err.to_string(),
-        })?;
+    let file_name = FileName::new(mcnp_input.display().to_string());
+    let model = parse_model_file(mcnp_input, &file_name)?;
 
-    // Create the output directory and subdirectory
+    // Create the output directory tree.
     create_dir_all(output_path.join("reference_model/filler_models"))?;
     create_dir_all(output_path.join("configurations"))?;
     create_dir_all(output_path.join("output"))?;
-    // Add a .gitignore file to ignore the output directory
     fs::write(output_path.join("output/.gitignore"), "*\n")?;
 
+    // Extract every universe into its own filler model file.
     info!("Extracting universes");
     model
         .universe_ids()
         .par_iter()
         .try_for_each(|&universe_id| {
-            let extracted_universe = model.extract_universe(universe_id);
+            let extracted = model.extract_universe(universe_id);
             let universe_path = output_path.join(format!(
-                "reference_model/filler_models/universe_{}.mcnp",
-                universe_id
+                "reference_model/filler_models/universe_{universe_id}.mcnp"
             ));
-            extracted_universe.write_to_file(&universe_path)?;
-            Ok::<(), GitronicsError>(())
+            fs::write(&universe_path, extracted.to_source())
+                .map_err(|source| GitronicsError::io_path(&universe_path, source))
         })?;
 
+    // Extract the level-0 shell and turn its FILL cards into `@env` placeholders.
     info!("Extracting envelope structure");
-    let mut envelope_structure = extract_envelope_structure(&model);
-
-    // Modify envelopes adding the @ placeholder
+    let mut envelope_structure = model.extract_level0();
     let (fillers_metadata, envelopes_metadata) =
         replace_fills_with_placeholders(&mut envelope_structure)?;
 
     info!("Writing envelope structure to file");
-    envelope_structure
-        .write_to_file(output_path.join("reference_model/envelope_structure.mcnp"))?;
+    let envelope_path = output_path.join("reference_model/envelope_structure.mcnp");
+    fs::write(&envelope_path, envelope_structure.to_source())
+        .map_err(|source| GitronicsError::io_path(&envelope_path, source))?;
 
-    // Write baseline configuration file
+    // Write the baseline configuration and per-filler metadata files.
     write_baseline_config(output_path, envelopes_metadata)?;
-
-    // Write the metadata files
     write_metadata_files(output_path, fillers_metadata)?;
 
-    // Write the data cards files
+    // Write every data card of the original model to a single data-cards file.
     let data_cards_file = output_path.join("reference_model/data_cards.source");
     let mut writer = File::create(&data_cards_file)?;
     writer.write_all(b"All the data cards of the original model\n")?;
-    for card in &model.data_cards {
-        card.write_into(&mut writer)?;
+    for card in model.data_cards() {
+        writeln!(writer, "{}", model.card_source(card.card_index).trim_end())?;
     }
 
-    // Assemble the model with the new configuration
+    // Assemble the migrated project to validate the migration round-trips.
     info!("Test assembling the model for the first time to validate the migration");
+    let previous_level = log::max_level();
     log::set_max_level(log::LevelFilter::Warn);
-    build_model(
+    let build_result = build_model(
         &output_path.join("configurations/baseline.yaml"),
         &output_path.join("output"),
-    )?;
-    Model::from_file(output_path.join("output/assembled.mcnp")).map_err(|err| {
-        GitronicsError::FailedToLoadMCNPFile {
-            file_name: output_path
-                .join("output/assembled.mcnp")
-                .display()
-                .to_string()
-                .into(),
-            error: err.to_string(),
-        }
-    })?;
-    log::set_max_level(log::LevelFilter::Info);
+    )
+    .and_then(|()| {
+        let assembled = output_path.join("output/assembled.mcnp");
+        parse_model_file(&assembled, &FileName::new(assembled.display().to_string())).map(|_| ())
+    });
+    log::set_max_level(previous_level);
+    build_result?;
 
     info!("Model migration completed successfully");
     Ok(())
@@ -117,7 +106,7 @@ fn write_metadata_files(
     for (filler_name, metadata) in fillers_metadata {
         let metadata_path = output_path
             .join("reference_model/filler_models")
-            .join(format!("{}.metadata", filler_name));
+            .join(format!("{filler_name}.metadata"));
         let yaml_content = serde_saphyr::to_string(&metadata).map_err(|e| {
             GitronicsError::YamlSerialize(metadata_path.display().to_string(), e.to_string())
         })?;
@@ -126,95 +115,64 @@ fn write_metadata_files(
     Ok(())
 }
 
-fn extract_envelope_structure(model: &Model) -> Model {
-    let mut env_struct = model.clone();
-    env_struct.cells = env_struct
-        .cells
-        .iter()
-        .filter(|cell| is_level_0(cell))
-        .cloned()
-        .collect();
-
-    let surfaces_to_keep: HashSet<u32> = env_struct
-        .cells
-        .iter()
-        .flat_map(|cell| {
-            cell.geometry().filter_map(|geo| match geo {
-                GeoElement::Surface(surface_id) => Some(surface_id.unsigned_abs()),
-                _ => None,
-            })
-        })
-        .collect();
-    env_struct.surfaces = env_struct
-        .surfaces
-        .iter()
-        .filter(|surface| surfaces_to_keep.contains(&surface.surface_id()))
-        .cloned()
-        .collect();
-    env_struct
-}
-
-fn is_level_0(cell: &CellCard) -> bool {
-    cell.get_universe().is_none()
-}
-
 type InfoForMetadata = (
     IndexMap<FillerName, FillerMetadata>,
     IndexMap<EnvelopeName, Option<FillerName>>,
 );
 
+/// For each level-0 cell that has a `fill=`, record the (envelope, filler,
+/// transform) placement, strip the `fill=` parameter, and append a
+/// `$ @env:envelope_<cell_id>` placeholder comment.
 fn replace_fills_with_placeholders(
     envelope_structure: &mut Model,
 ) -> Result<InfoForMetadata, GitronicsError> {
     let mut envelopes_metadata: IndexMap<EnvelopeName, Option<FillerName>> = IndexMap::new();
     let mut fillers_metadata: IndexMap<FillerName, FillerMetadata> = IndexMap::new();
-    for cell in envelope_structure.cells.iter_mut() {
-        if is_level_0(cell)
-            && let Some(fill_data) = cell.get_fill()
-        {
-            let filler_name = FillerName::new(format!("universe_{}", fill_data.universe));
-            let envelope_name = EnvelopeName::new(format!("envelope_{}", cell.cell_id()));
-            let star = if fill_data.starred { "*" } else { "" };
-            let transform: Option<String> = match (fill_data.transform, &fill_data.coeffs) {
-                (Some(tr), _) => Some(format!("{star}({tr})")),
-                (None, None) => None,
-                (None, Some(coeffs)) => {
-                    let coeffs_str = coeffs
-                        .iter()
-                        .map(|c| c.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    Some(format!("{star}({coeffs_str})"))
-                }
-            };
 
-            envelopes_metadata.insert(envelope_name.clone(), Some(filler_name.clone()));
-            fillers_metadata
-                .entry(filler_name)
-                .or_insert_with(|| FillerMetadata {
-                    transformations: Some(IndexMap::new()),
-                })
-                .transformations
-                .get_or_insert_with(IndexMap::new)
-                .insert(envelope_name, transform);
+    // Snapshot the cells and their fills first; edits (parameter removal + comment
+    // insertion) are token splices that keep card indices stable.
+    let placements: Vec<(usize, i64, migjorn::Fill)> = envelope_structure
+        .cells()
+        .filter_map(|cell| {
+            envelope_structure
+                .cell_fill(cell.card_index)
+                .map(|fill| (cell.card_index, cell.id, fill))
+        })
+        .collect();
 
-            let fill_index = cell
-                .params()
-                .iter()
-                .position(|p| matches!(p.param_type, ParamType::Fill(_)))
-                .expect("fill param must exist since get_fill() returned Some");
-            cell.remove_param(fill_index);
+    for (card_index, cell_id, fill) in placements {
+        let filler_name = FillerName::new(format!("universe_{}", fill.universe));
+        let envelope_name = EnvelopeName::new(format!("envelope_{cell_id}"));
+        let transform = fill.transform.map(|inner| {
+            if fill.starred {
+                format!("*({inner})")
+            } else {
+                format!("({inner})")
+            }
+        });
 
-            let modified_text = format!(
-                "{}           $ @env:envelope_{} \n",
-                cell.updated_text(),
-                cell.cell_id()
-            );
-            *cell = CellCard::try_from(modified_text.as_str()).map_err(|err| {
-                GitronicsError::ValidationError(format!("Could not adapt envelope cell: {err}"))
+        envelopes_metadata.insert(envelope_name.clone(), Some(filler_name.clone()));
+        fillers_metadata
+            .entry(filler_name)
+            .or_insert_with(|| FillerMetadata {
+                transformations: Some(IndexMap::new()),
+            })
+            .transformations
+            .get_or_insert_with(IndexMap::new)
+            .insert(envelope_name, transform);
+
+        envelope_structure
+            .remove_cell_param(card_index, "fill")
+            .map_err(|e| {
+                GitronicsError::ValidationError(format!("Could not remove FILL card: {e}"))
             })?;
-        }
+        envelope_structure
+            .append_inline_comment(card_index, &format!("@env:envelope_{cell_id}"))
+            .map_err(|e| {
+                GitronicsError::ValidationError(format!("Could not add envelope placeholder: {e}"))
+            })?;
     }
+
     Ok((fillers_metadata, envelopes_metadata))
 }
 
@@ -230,6 +188,6 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let output_path = temp_dir.path().join("output.mcnp");
         let result = migrate_model(&mcnp_input, &output_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "migration failed: {:?}", result.err());
     }
 }

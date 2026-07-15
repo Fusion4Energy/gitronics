@@ -8,7 +8,6 @@ use std::fmt;
 use std::ops::Deref;
 
 use indexmap::IndexMap;
-use migjorn::Model;
 use serde::{Deserialize, Serialize};
 
 /// Metadata associated with a filler model, describing how it should be placed.
@@ -107,16 +106,6 @@ impl From<&FileName> for FillerName {
     }
 }
 
-impl From<&Model> for FillerName {
-    fn from(model: &Model) -> Self {
-        model
-            .path
-            .file_stem()
-            .map(|s| FillerName::new(s.to_string_lossy().to_string()))
-            .unwrap_or_else(|| FillerName::new("<invalid path>".to_string()))
-    }
-}
-
 /// Envelope name.
 ///
 /// Example: `EnvelopeName::new("main_vessel")`
@@ -181,31 +170,6 @@ impl From<u32> for UniverseId {
     }
 }
 
-/// Cell ID in MCNP models.
-///
-/// Example: `CellId::new(10001)`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CellId(u32);
-
-impl CellId {
-    /// Creates a new cell ID.
-    pub fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-impl fmt::Display for CellId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u32> for CellId {
-    fn from(id: u32) -> Self {
-        Self(id)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,13 +178,6 @@ mod tests {
     fn test_universe_id() {
         let id = UniverseId::new(101);
         assert_eq!(id.to_string(), "101");
-    }
-
-    #[test]
-    fn test_cell_id_ordering() {
-        let id1 = CellId::new(100);
-        let id2 = CellId::new(200);
-        assert!(id1 < id2);
     }
 
     #[test]

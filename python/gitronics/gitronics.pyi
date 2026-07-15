@@ -43,3 +43,19 @@ def py_build_model(config_path: Path | str, output_path: Path | str) -> None:
         )
     """
     ...
+
+def py_migrate_model(mcnp_input: Path | str, output_path: Path | str) -> None:
+    """Migrate a monolithic MCNP model into a new gitronics project.
+
+    Splits the deck at *mcnp_input* into an envelope structure, per-universe
+    filler models, and a data-cards file, and writes a baseline configuration
+    that rebuilds the original model with :func:`build_model`.
+
+    Args:
+        mcnp_input: Path to the monolithic MCNP input file.
+        output_path: Directory where the new project will be created.
+
+    Raises:
+        RuntimeError: If any step of the migration fails.
+    """
+    ...

@@ -636,14 +636,21 @@ dependencies = [
 
 [[package]]
 name = "migjorn"
-version = "0.1.8"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3f2fe960921f8c049fc7ac5536e96cba576e902cf040c258e8092eabb9eeaaf"
+checksum = "ce11924d4ef1f0496f0be14e68860ab11bbc0b63222057d03bc92b22b4084f3d"
 dependencies = [
- "clap",
- "memchr",
- "rayon",
- "thiserror",
+ "migjorn-syntax",
+ "rustc-hash",
+]
+
+[[package]]
+name = "migjorn-syntax"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42d3806f43fee8380cfaa0e26e9fee3a2dbece142e5314b6c7f9a0babf03fe05"
+dependencies = [
+ "rustc-hash",
 ]
 
 [[package]]
@@ -857,6 +864,12 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
 name = "rustix"
