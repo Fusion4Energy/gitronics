@@ -10,7 +10,7 @@ use migjorn::Model;
 use rayon::prelude::*;
 
 use crate::types::{FileName, FillerName};
-use crate::utils::{GitronicsError, parse_model_file, read_data_cards_text};
+use crate::utils::{GitronicsError, parse_model_file, read_data_cards_text, sort_data_card_chunks};
 
 use super::ProjectManager;
 
@@ -91,7 +91,9 @@ impl ProjectManager {
     }
 
     /// Concatenates the data-card text of every file in `names`, one blank-line
-    /// separated block per file, in configuration order.
+    /// separated block per file. Blocks are ordered by the id of each file's
+    /// first data card (deterministic output, independent of configuration
+    /// order); cards inside a file keep their original order.
     fn load_data_cards_text(&self, names: &[FileName]) -> Result<String, GitronicsError> {
         let mut chunks = Vec::new();
         for name in names {
@@ -99,6 +101,7 @@ impl ProjectManager {
             info!("Loading: {}", path.display());
             chunks.push(read_data_cards_text(path, name)?);
         }
+        sort_data_card_chunks(&mut chunks);
         Ok(chunks.join("\n"))
     }
 }
