@@ -22,7 +22,7 @@ jobs:
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@stable
               with:
-                  components: clippy
+                  components: clippy, rustfmt
 
             - name: Set up Python (Required for PyO3 test linking)
               id: setup-python
@@ -49,11 +49,29 @@ jobs:
                       target
                   key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+            - name: rustfmt
+              run: cargo fmt --all --check
+
             - name: Test
               run: cargo test --workspace --features pyo3/auto-initialize
 
             - name: Clippy
               run: cargo clippy --workspace -- -D warnings
+
+    ruff:
+        name: Python lint (ruff)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: astral-sh/setup-uv@v5
+
+            # Pinned so a new ruff release can't fail CI unexpectedly; bump deliberately.
+            - name: ruff lint
+              run: uvx ruff@0.15.21 check python
+
+            - name: ruff format
+              run: uvx ruff@0.15.21 format --check python
 
     python:
         name: Python tests (${{ matrix.os }})
