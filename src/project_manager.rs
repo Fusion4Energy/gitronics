@@ -74,7 +74,7 @@ impl ProjectManager {
         let filler_metadata = self
             .metadata
             .get(filler_name)
-            .expect("metadata should exist after successful load_metadata call");
+            .ok_or_else(|| GitronicsError::MetadataNotFound(filler_name.into()))?;
         if !filler_metadata.contains_key(envelope_name) {
             return Err(GitronicsError::TransformationNotFound {
                 filler_name: filler_name.clone(),

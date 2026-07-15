@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "gitronics"
 dynamic = ["version"]
 description = "Build MCNP neutronics models from modular components"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",

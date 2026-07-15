@@ -250,6 +250,45 @@ fn test_filler_first_cell_without_universe_id() {
 }
 
 #[test]
+fn test_id_collision_between_fillers_is_reported() {
+    // Two fillers that both define cell id 100 violate the disjoint-range
+    // convention; the build must fail and name the clashing id.
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    fs::write(
+        root.join("config.yaml"),
+        "project_roots: [.]\nenvelope_structure: env\nenvelopes:\n  e1: f1\n  e2: f2\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("env.mcnp"),
+        "env title\n1 0 -1 imp:n=1 $ @env:e1\n2 0 -2 imp:n=1 $ @env:e2\n\n1 SO 5\n2 SO 6\n\nM1 1001 1\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("f1.mcnp"),
+        "f1\n100 0 -100 imp:n=1 u=1\n\n100 SO 3\n\nM1 1001 1\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("f2.mcnp"),
+        "f2\n100 0 -200 imp:n=1 u=2\n\n200 SO 3\n\nM1 1001 1\n",
+    )
+    .unwrap();
+    fs::write(root.join("f1.metadata"), "transformations:\n  e1: null\n").unwrap();
+    fs::write(root.join("f2.metadata"), "transformations:\n  e2: null\n").unwrap();
+
+    let result = build_model(&root.join("config.yaml"), &root.join("out"));
+
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("ID collisions") && msg.contains("cell 100"),
+        "expected a cell-100 collision error, got: {msg}"
+    );
+}
+
+#[test]
 fn test_envelopes_in_config_that_dont_exist() {
     let mut logger = Logger::start();
     let dir = tempdir().unwrap();

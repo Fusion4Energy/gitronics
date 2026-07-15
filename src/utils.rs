@@ -7,9 +7,11 @@
 
 use crate::types::{EnvelopeName, FileName, FillerName};
 use log::LevelFilter;
+use migjorn::{Model, Severity};
 use path_clean::PathClean;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -85,6 +87,11 @@ pub enum GitronicsError {
     #[error("Failed to construct FILL card parameter from `{0}`: `{1}`")]
     InvalidFillCard(String, String),
 
+    #[error(
+        "ID collisions between components (each id must be unique across the envelope structure and all fillers):\n{0}"
+    )]
+    MergeConflicts(String),
+
     #[error("{0}")]
     ValidationError(String),
 }
@@ -102,6 +109,64 @@ impl GitronicsError {
             path: cleaned_path,
             source,
         }
+    }
+}
+
+/// Reads an MCNP model file and parses it with migjorn, returning an error if
+/// the parser reports any error-severity diagnostic (warnings are tolerated).
+pub fn parse_model_file(path: &Path, file_name: &FileName) -> Result<Model, GitronicsError> {
+    let text = fs::read_to_string(path).map_err(|source| GitronicsError::io_path(path, source))?;
+    let model = Model::parse(text);
+    if let Some(diag) = model
+        .diagnostics()
+        .iter()
+        .find(|d| matches!(d.severity, Severity::Error))
+    {
+        return Err(GitronicsError::FailedToLoadMCNPFile {
+            file_name: file_name.clone(),
+            error: diag.message.clone(),
+        });
+    }
+    Ok(model)
+}
+
+/// Reads a Gitronics data-card file and returns its data-card text.
+///
+/// Following the data-card file convention, the first line is treated as a
+/// title and dropped unless it is an MCNP comment (in which case it is kept as a
+/// header), and content stops at the first blank line — anything after it is
+/// ignored.
+pub fn read_data_cards_text(path: &Path, file_name: &FileName) -> Result<String, GitronicsError> {
+    let content =
+        fs::read_to_string(path).map_err(|source| GitronicsError::io_path(path, source))?;
+    let mut kept: Vec<&str> = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        if line.trim().is_empty() {
+            break; // MCNP section separator: stop at the first blank line
+        }
+        if i == 0 && !is_mcnp_comment(line) {
+            continue; // drop a non-comment title line
+        }
+        kept.push(line);
+    }
+    if kept.is_empty() {
+        return Err(GitronicsError::FailedToLoadDataCardsFile {
+            file_name: file_name.clone(),
+            error: "no data cards found before the first blank line".to_string(),
+        });
+    }
+    Ok(kept.join("\n"))
+}
+
+/// True if `line` is an MCNP full-line comment (first non-blank character is
+/// `c`/`C`, followed by whitespace or end of line) or blank.
+fn is_mcnp_comment(line: &str) -> bool {
+    let t = line.trim_start();
+    let mut chars = t.chars();
+    match chars.next() {
+        None => true,
+        Some('c') | Some('C') => chars.next().is_none_or(|c| c.is_whitespace()),
+        _ => false,
     }
 }
 

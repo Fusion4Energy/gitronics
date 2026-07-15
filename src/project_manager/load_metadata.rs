@@ -1,18 +1,19 @@
 use super::ProjectManager;
 use crate::types::{EnvelopeName, FillerMetadata, FillerName};
 use crate::utils::GitronicsError;
-use migjorn::Model;
 use std::{collections::HashMap, fs};
 
 impl ProjectManager {
-    /// Loads and caches metadata for the given filler models.
+    /// Loads and caches metadata for the given fillers.
     ///
     /// Reads the `.metadata` files associated with each filler and stores the transformation
     /// mappings in the internal cache of the `ProjectManager`.
-    pub fn load_metadata_for_fillers(&mut self, fillers: &[Model]) -> Result<(), GitronicsError> {
-        for filler in fillers {
-            let filler_name = FillerName::from(filler);
-            self.load_metadata(&filler_name)?;
+    pub fn load_metadata_for_fillers<'a>(
+        &mut self,
+        filler_names: impl IntoIterator<Item = &'a FillerName>,
+    ) -> Result<(), GitronicsError> {
+        for filler_name in filler_names {
+            self.load_metadata(filler_name)?;
         }
         Ok(())
     }
