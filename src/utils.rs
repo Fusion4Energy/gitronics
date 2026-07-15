@@ -178,7 +178,6 @@ fn first_data_card_key(chunk: &str) -> DataCardKey {
         }
         // First whitespace token is the mnemonic, minus any leading `*`.
         let mnemonic = line
-            .trim_start()
             .split_whitespace()
             .next()
             .unwrap_or("")
