@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/readme/hero.svg" alt="Gitronics — assemble MCNP neutronics models from modular, version-controlled components" width="100%">
+  <img src="docs/assets/hero.svg" alt="Gitronics — assemble MCNP neutronics models from modular, version-controlled components" width="100%">
 </div>
 
 <p align="center">
@@ -53,7 +53,7 @@ The order of every card in the output is **deterministic**, so two builds of the
 ## How it works
 
 <div align="center">
-  <img src="assets/readme/flow.svg" alt="Envelope structure, filler models, and data cards are combined by a YAML configuration through 'gitronics build' into a single assembled.mcnp file plus an HTML report" width="100%">
+  <img src="docs/assets/flow_readme.svg" alt="Envelope structure, filler models, and data cards are combined by a YAML configuration through 'gitronics build' into a single assembled.mcnp file plus an HTML report" width="100%">
 </div>
 
 `gitronics build` reads a configuration, loads every referenced component, inserts the correct `FILL` cards into the envelope cells, runs validation checks (duplicate IDs, missing cards, …), and writes a single MCNP input plus an HTML build report.
