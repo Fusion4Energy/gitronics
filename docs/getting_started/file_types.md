@@ -87,7 +87,7 @@ These kind of files contain MCNP data cards and they must have one of the follow
 The choice of the file extension is only for organizational purposes, Gitronics does not enforce any restriction on the content of these files. For example, a file with the `.mat` extension can contain tally cards, and it will still be read by Gitronics.
 
 A data card file is not a valid MCNP input file on its own.
-It consists on a title card followed by a list of MCNP data cards. 
+It consists of a title card followed by a list of MCNP data cards. 
 The title card is mandatory, and it will be ignored by Gitronics when assembling the model.
 The data cards will be read until encountering a blank line or the end of the file. 
 Any content after that will be ignored.
@@ -134,7 +134,7 @@ For example, the file `toroidal_field_coil.mcnp` can have a metadata file called
 These metadata files can contain any information, Gitronics will not enforce any restriction on the content of these files.
 
 These files are optional for any file except for filler models.
-Filler models must have a metadata file with at least the `transformation` field, which is a dictionary that maps any envelope name that the filler model can be applied to, to a transformation string.
+Filler models must have a metadata file with at least the `transformations` field, which is a dictionary that maps any envelope name that the filler model can be applied to, to a transformation string.
 The transformation string can be a transformation card like `(123)` or a transformation definition like `(10.1 0 0)`.
 If the transformation definition is preceded by a `*`, it will be interpreted as a transformation in degrees instead of radians like in `*(0.001 0.001 0.001 70 20 90 160 70 90 90 90 0)`.
 The string can also be left empty or with the `null` value to indicate that no transformation should be applied to the filler model when it is inserted into that envelope cell.

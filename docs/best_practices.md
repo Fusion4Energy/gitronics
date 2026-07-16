@@ -36,7 +36,7 @@ The title card is a single line that will be ignored by Gitronics when assemblin
 The Gitronics methodology is designed to manage the source files of a model, not the assembled MCNP input files.
 Via the information in the header of the `assembled.mcnp` file, it is possible to reproduce the exact same model from the source files. Therefore, it is not necessary to commit the assembled MCNP input files to the repository.
 
-Commiting large files to the repository will make it slower to clone and checkout branches, and it will also make it harder to track changes.
+Committing large files to the repository will make it slower to clone and checkout branches, and it will also make it harder to track changes.
 
 !!! tip "Use `.gitignore`"
     Make use of the `.gitignore` file to avoid committing unnecessary files. You can place a `.gitignore` file with the content `*` in a folder to ignore all files in that folder (like the `output/` folder).

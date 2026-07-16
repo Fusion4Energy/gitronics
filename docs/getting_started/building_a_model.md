@@ -19,6 +19,11 @@ See also: [Build command details](../usage/build.md).
 
 ## What happens during a build
 
+<figure markdown="span">
+  ![Gitronics build pipeline](../assets/flow.svg){ width="100%" }
+  <figcaption>The envelope structure, filler models, and data cards are combined by a YAML configuration into a single <code>assembled.mcnp</code> plus a build report.</figcaption>
+</figure>
+
 When running the `gitronics build` command, the following steps are performed:
 
 1. The configuration file (and any parent configs it inherits from) is loaded and merged.

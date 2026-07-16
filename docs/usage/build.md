@@ -37,8 +37,8 @@ The top of `assembled.mcnp` contains a metadata comment block:
 C ============================================================
 C  Built by gitronics v0.1.0
 C  Configuration : configurations/in_vessel_only.yaml
-C  Git commit    : a1b2c3d4e5f6...
-C  Date / time   : 2025-01-15T14:32:00Z
+C  Git commit    : v0.6.2-4-g04d555a
+C  Date / time   : 2025-01-15 14:32:00
 C ============================================================
 ```
 
