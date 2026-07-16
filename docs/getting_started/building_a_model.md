@@ -19,8 +19,9 @@ See also: [Build command details](../usage/build.md).
 
 ## What happens during a build
 
-<figure markdown="span">
-  ![Gitronics build pipeline](../assets/flow.svg){ width="100%" }
+<figure class="wide" markdown="span">
+  ![Gitronics build pipeline](../assets/flow.svg#only-dark){ width="100%" }
+  ![Gitronics build pipeline](../assets/flow-light.svg#only-light){ width="100%" }
   <figcaption>The envelope structure, filler models, and data cards are combined by a YAML configuration into a single <code>assembled.mcnp</code> plus a build report.</figcaption>
 </figure>
 

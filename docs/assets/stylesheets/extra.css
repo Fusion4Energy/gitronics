@@ -1,0 +1,21 @@
+/* Gitronics documentation — layout tweaks */
+
+/* Diagram figures: keep them centered at a comfortable, readable size. */
+.md-typeset figure.wide {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    margin: 1.2em auto;
+    text-align: center;
+}
+
+/* Do NOT set `display` on these images: mkdocs-material toggles the
+   light/dark variants with `display: none`, so overriding it would make
+   both variants show at once. Size and centering only. */
+.md-typeset figure.wide img {
+    width: 100%;
+    max-width: 760px;
+    height: auto;
+    margin-left: auto;
+    margin-right: auto;
+}

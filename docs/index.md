@@ -20,8 +20,9 @@ The Gitronics methodology is already used to maintain the most complex neutronic
 
 ## How it works
 
-<figure markdown="span">
-  ![Gitronics build pipeline](assets/flow.svg){ width="100%" }
+<figure class="wide" markdown="span">
+  ![Gitronics build pipeline](assets/flow.svg#only-dark){ width="100%" }
+  ![Gitronics build pipeline](assets/flow-light.svg#only-light){ width="100%" }
   <figcaption>Modular components and a YAML configuration are combined by <code>gitronics build</code> into a single <code>assembled.mcnp</code> plus an HTML report.</figcaption>
 </figure>
 

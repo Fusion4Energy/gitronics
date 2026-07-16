@@ -43,6 +43,9 @@ plugins:
 hooks:
   - docs/hooks/version_from_git.py
 
+extra_css:
+  - assets/stylesheets/extra.css
+
 extra:
   version:
     provider: mike
