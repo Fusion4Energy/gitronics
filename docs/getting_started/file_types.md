@@ -54,7 +54,7 @@ This is a design choice to avoid duplication of information and to keep the geom
     ```
 
 !!! warning "Title card"
-    The title card of a geometry file is mandatory. Omitting it may cause an invalid parsing. Only the title card of the envelope structure file will be preserved in the assembled output file. The title cards of filler files will be ignored.
+    If the title card starts with a `c` or `C`, it will be considered a header comment and be included in the `assembled.mcnp` file. The only non-comment title line that will be preserved in the `assembled.mcnp` file is that of the envelope structure file.
 
 !!! tip "Data cards in geometry files"
     A geometry file may contain data cards, making it a complete and valid MCNP input file by itself. While Gitronics will ignore these data cards, they can be useful for testing the geometry without the need to create a configuration file. It can be especially useful to have a stochastic volume calculation source in the geometry to check for lost particles and calculate the volumes of the cells in a filler model.
@@ -87,8 +87,7 @@ These kind of files contain MCNP data cards and they must have one of the follow
 The choice of the file extension is only for organizational purposes, Gitronics does not enforce any restriction on the content of these files. For example, a file with the `.mat` extension can contain tally cards, and it will still be read by Gitronics.
 
 A data card file is not a valid MCNP input file on its own.
-It consists of a title card followed by a list of MCNP data cards. 
-The title card is mandatory, and it will be ignored by Gitronics when assembling the model.
+It consists of an optional title card followed by a list of MCNP data cards.
 The data cards will be read until encountering a blank line or the end of the file. 
 Any content after that will be ignored.
 
