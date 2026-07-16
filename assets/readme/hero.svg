@@ -15,46 +15,52 @@
   <rect x="0" y="0" width="1200" height="500" rx="24" fill="url(#glow)"/>
   <rect x="1" y="1" width="1198" height="498" rx="23" fill="none" stroke="#1C2634" stroke-width="1.5"/>
 
-  <!-- radiation trefoil watermark -->
-  <g transform="translate(930,250)" fill="#FFC24B" opacity="0.06">
-    <circle r="26"/>
-    <g>
-      <path d="M -18 -31.18 L -52 -90.07 A 104 104 0 0 1 52 -90.07 L 18 -31.18 A 36 36 0 0 0 -18 -31.18 Z"/>
-      <path d="M -18 -31.18 L -52 -90.07 A 104 104 0 0 1 52 -90.07 L 18 -31.18 A 36 36 0 0 0 -18 -31.18 Z" transform="rotate(120)"/>
-      <path d="M -18 -31.18 L -52 -90.07 A 104 104 0 0 1 52 -90.07 L 18 -31.18 A 36 36 0 0 0 -18 -31.18 Z" transform="rotate(240)"/>
+  <!-- LEFT: lockup (logo mark + wordmark) -->
+  <circle cx="104" cy="118" r="50" fill="#F6F1E7" stroke="#E4DAC6" stroke-width="1.5"/>
+  <g transform="translate(59.6,73.6) scale(0.37)">
+    <g fill="url(#amber)">
+      <path transform="translate(120,120)" d="M -20 -34.64 L -54 -93.53 A 108 108 0 0 1 54 -93.53 L 20 -34.64 A 40 40 0 0 0 -20 -34.64 Z"/>
+      <path transform="translate(120,120) rotate(120)" d="M -20 -34.64 L -54 -93.53 A 108 108 0 0 1 54 -93.53 L 20 -34.64 A 40 40 0 0 0 -20 -34.64 Z"/>
+    </g>
+    <circle cx="120" cy="120" r="26" fill="#16325E"/>
+    <g stroke="#16325E" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M 75 146 L 61 201 L 20 131 Z"/>
+    </g>
+    <g fill="#16325E">
+      <circle cx="75" cy="146" r="14"/>
+      <circle cx="61" cy="201" r="14"/>
+      <circle cx="20" cy="131" r="14"/>
     </g>
   </g>
 
-  <!-- LEFT: title block -->
-  <text x="66" y="98" fill="#FFC24B" font-size="15" font-weight="700" letter-spacing="4">MCNP &#183; NEUTRONICS &#183; FUSION</text>
-  <text x="62" y="182" fill="#F4F6FB" font-size="84" font-weight="800" letter-spacing="-1">Gitronics</text>
+  <text x="176" y="130" fill="#F4F6FB" font-size="60" font-weight="800" letter-spacing="-1">Gitronics</text>
+  <text x="179" y="162" fill="#FFC24B" font-size="14" font-weight="700" letter-spacing="4">MCNP &#183; NEUTRONICS &#183; FUSION</text>
 
-  <text x="66" y="232" fill="#C7D0DD" font-size="23">Assemble MCNP neutronics models from modular,</text>
-  <text x="66" y="264" fill="#C7D0DD" font-size="23">version-controlled components &#8212; not one big file.</text>
+  <text x="66" y="214" fill="#C7D0DD" font-size="22">Assemble MCNP neutronics models from modular,</text>
+  <text x="66" y="244" fill="#C7D0DD" font-size="22">version-controlled components &#8212; not one big file.</text>
 
   <!-- metadata chips -->
   <g font-size="14" font-weight="600">
-    <rect x="66" y="298" width="130" height="34" rx="17" fill="#121A27" stroke="#26313F"/>
-    <text x="131" y="320" fill="#B9C3D1" text-anchor="middle">Rust + Python</text>
-    <rect x="206" y="298" width="104" height="34" rx="17" fill="#121A27" stroke="#26313F"/>
-    <text x="258" y="320" fill="#B9C3D1" text-anchor="middle">EUPL-1.2</text>
-    <rect x="320" y="298" width="120" height="34" rx="17" fill="#121A27" stroke="#26313F"/>
-    <text x="380" y="320" fill="#B9C3D1" text-anchor="middle">Python &#8805; 3.9</text>
+    <rect x="66" y="278" width="130" height="34" rx="17" fill="#121A27" stroke="#26313F"/>
+    <text x="131" y="300" fill="#B9C3D1" text-anchor="middle">Rust + Python</text>
+    <rect x="206" y="278" width="104" height="34" rx="17" fill="#121A27" stroke="#26313F"/>
+    <text x="258" y="300" fill="#B9C3D1" text-anchor="middle">EUPL-1.2</text>
+    <rect x="320" y="278" width="120" height="34" rx="17" fill="#121A27" stroke="#26313F"/>
+    <text x="380" y="300" fill="#B9C3D1" text-anchor="middle">Python &#8805; 3.9</text>
   </g>
 
   <!-- proof line -->
   <g>
-    <circle cx="74" cy="368" r="4" fill="#38D9C0"/>
-    <text x="88" y="373" fill="#8FE7DA" font-size="15" font-weight="600">Trusted on the ITER and JT-60SA neutronics models</text>
+    <circle cx="74" cy="348" r="4" fill="#38D9C0"/>
+    <text x="88" y="353" fill="#8FE7DA" font-size="15" font-weight="600">Trusted on the ITER and JT-60SA neutronics models</text>
   </g>
 
   <!-- command chip -->
-  <rect x="66" y="398" width="556" height="52" rx="12" fill="#0E1622" stroke="#26313F"/>
-  <text x="86" y="430" fill="#FFC24B" font-size="17" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">$</text>
-  <text x="106" y="430" fill="#DDE4EE" font-size="17" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">gitronics build configurations/baseline.yaml</text>
+  <rect x="66" y="378" width="556" height="52" rx="12" fill="#0E1622" stroke="#26313F"/>
+  <text x="86" y="410" fill="#FFC24B" font-size="17" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">$</text>
+  <text x="106" y="410" fill="#DDE4EE" font-size="17" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">gitronics build configurations/baseline.yaml</text>
 
-  <!-- RIGHT: modular assembly diagram -->
-  <!-- filler tokens flowing in -->
+  <!-- RIGHT: modular assembly schematic -->
   <g font-size="13" font-weight="600" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
     <rect x="724" y="84" width="150" height="34" rx="8" fill="#141D2B" stroke="#2C3849"/>
     <text x="799" y="106" fill="#C7D0DD" text-anchor="middle">fillers/*.mcnp</text>
@@ -82,17 +88,14 @@
 
   <!-- envelope cell grid: 4 x 3 -->
   <g>
-    <!-- row 0 -->
     <rect x="736" y="220" width="82" height="48" rx="7" fill="url(#amber)"/>
     <rect x="832" y="220" width="82" height="48" rx="7" fill="#131C2A" stroke="#2A3646"/>
     <rect x="928" y="220" width="82" height="48" rx="7" fill="#131C2A" stroke="#2A3646"/>
     <rect x="1024" y="220" width="82" height="48" rx="7" fill="url(#amber)"/>
-    <!-- row 1 -->
     <rect x="736" y="282" width="82" height="48" rx="7" fill="#131C2A" stroke="#2A3646"/>
     <rect x="832" y="282" width="82" height="48" rx="7" fill="#131C2A" stroke="#2A3646"/>
     <rect x="928" y="282" width="82" height="48" rx="7" fill="url(#amber)"/>
     <rect x="1024" y="282" width="82" height="48" rx="7" fill="#131C2A" stroke="#2A3646"/>
-    <!-- row 2 -->
     <rect x="736" y="344" width="82" height="48" rx="7" fill="#131C2A" stroke="#2A3646"/>
     <rect x="832" y="344" width="82" height="48" rx="7" fill="url(#amber)"/>
     <rect x="928" y="344" width="82" height="48" rx="7" fill="#131C2A" stroke="#2A3646"/>

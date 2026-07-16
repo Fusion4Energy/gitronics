@@ -90,7 +90,7 @@ tallies: [fine_mesh]
 envelopes:
   blanket_sector_01_r1_c01: universe_101
   blanket_sector_01_r1_c02: universe_103
-  divertor_cassette_18:      null   # intentionally left empty
+  divertor_cassette_18: null  # intentionally left empty
 ```
 
 ---
