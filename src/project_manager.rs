@@ -1,6 +1,6 @@
 use crate::model_config::ModelConfig;
 use crate::project_manager::load_model_config::load_config;
-use crate::types::{EnvelopeName, FileName, FillerName};
+use crate::types::{EnvelopeMetadata, EnvelopeName, FileName, FillerMetadata, FillerName};
 use crate::utils::{GitronicsError, get_file_paths};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -18,6 +18,12 @@ pub struct ProjectManager {
     output_path: PathBuf,
     file_paths: HashMap<FileName, PathBuf>,
     metadata: HashMap<FillerName, HashMap<EnvelopeName, Option<String>>>,
+    /// Full parsed filler metadata (description, pbs, card-id range), cached per
+    /// filler as its `.metadata` sidecar is loaded.
+    filler_details: HashMap<FillerName, FillerMetadata>,
+    /// Descriptive metadata for each envelope, loaded from the envelope-structure
+    /// `.metadata` sidecar (best-effort; empty when the file is absent).
+    envelope_details: HashMap<EnvelopeName, EnvelopeMetadata>,
 }
 
 impl ProjectManager {
@@ -35,6 +41,8 @@ impl ProjectManager {
             output_path,
             model_config,
             metadata: HashMap::new(),
+            filler_details: HashMap::new(),
+            envelope_details: HashMap::new(),
         })
     }
 
@@ -109,6 +117,25 @@ impl ProjectManager {
     /// Returns the source file name from the configuration, if any.
     pub fn source_name(&self) -> Option<&FileName> {
         self.model_config.source()
+    }
+
+    /// Returns the free-text description of a filler, from its cached metadata.
+    pub fn filler_description(&self, filler_name: &FillerName) -> Option<&str> {
+        self.filler_details
+            .get(filler_name)
+            .and_then(|m| m.description.as_deref())
+    }
+
+    /// Returns the product-breakdown-structure (PBS) code of a filler, if any.
+    pub fn filler_pbs(&self, filler_name: &FillerName) -> Option<&str> {
+        self.filler_details
+            .get(filler_name)
+            .and_then(|m| m.pbs.as_deref())
+    }
+
+    /// Returns the descriptive metadata for an envelope, if it was loaded.
+    pub fn envelope_metadata(&self, envelope_name: &EnvelopeName) -> Option<&EnvelopeMetadata> {
+        self.envelope_details.get(envelope_name)
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry};
+use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry, IdRange, SCHEMA_VERSION};
 use crate::project_manager::ProjectManager;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
 use crate::utils::GitronicsError;
@@ -7,7 +7,7 @@ use git2::Repository;
 use log::{info, warn};
 use migjorn::Model;
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::{collections::HashMap, path::Path, sync::LazyLock};
 
@@ -32,6 +32,8 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 
     // Load metadata for each filler and cache it in the ProjectManager.
     project_manager.load_metadata_for_fillers(fillers.iter().map(|(name, _)| name))?;
+    // Load the descriptive envelope-structure metadata (best-effort).
+    project_manager.load_envelope_metadata();
 
     // Universe id of every filler (read from its first cell's `u=`).
     let universe_ids: HashMap<FillerName, UniverseId> = fillers
@@ -100,10 +102,12 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     fs::write(&assembled_path, final_source)?;
     fs::write(output_path.join(".gitignore"), "*\n")?;
 
-    // Write the HTML build report.
-    info!("Writing HTML build report");
+    // Write the HTML build report and its machine-readable JSON manifest.
+    info!("Writing build report");
     let report_path = project_manager.output_path().join("build_report.html");
     fs::write(&report_path, report.generate_html())?;
+    let json_path = project_manager.output_path().join("build_report.json");
+    fs::write(&json_path, report.to_json())?;
 
     info!(
         "Build completed successfully in: {}",
@@ -226,6 +230,58 @@ fn add_fill_cards_to_envelopes(
     Ok(())
 }
 
+/// Per-model statistics derived directly from a parsed [`Model`] (reliable,
+/// independent of any metadata sidecar).
+struct ModelStats {
+    cell_count: usize,
+    surface_count: usize,
+    cell_id_range: Option<IdRange>,
+    surface_id_range: Option<IdRange>,
+    materials: Vec<i64>,
+}
+
+/// Computes cell/surface counts, id ranges and the distinct material set of a
+/// model in a single pass over its cells and surfaces.
+fn model_stats(model: &Model) -> ModelStats {
+    let mut cell_count = 0usize;
+    let mut cell_min = i64::MAX;
+    let mut cell_max = i64::MIN;
+    let mut materials: BTreeSet<i64> = BTreeSet::new();
+    for cell in model.cells() {
+        cell_count += 1;
+        cell_min = cell_min.min(cell.id);
+        cell_max = cell_max.max(cell.id);
+        if let Some(m) = cell.material
+            && m != 0
+        {
+            materials.insert(m);
+        }
+    }
+
+    let mut surface_count = 0usize;
+    let mut surf_min = i64::MAX;
+    let mut surf_max = i64::MIN;
+    for surface in model.surfaces() {
+        surface_count += 1;
+        surf_min = surf_min.min(surface.id);
+        surf_max = surf_max.max(surface.id);
+    }
+
+    ModelStats {
+        cell_count,
+        surface_count,
+        cell_id_range: (cell_count > 0).then_some(IdRange {
+            min: cell_min,
+            max: cell_max,
+        }),
+        surface_id_range: (surface_count > 0).then_some(IdRange {
+            min: surf_min,
+            max: surf_max,
+        }),
+        materials: materials.into_iter().collect(),
+    }
+}
+
 fn collect_build_report(
     config_path: &Path,
     project_manager: &ProjectManager,
@@ -264,21 +320,30 @@ fn collect_build_report(
                     .map(str::to_string)
             });
 
+            let meta = project_manager.envelope_metadata(env_name);
             EnvelopeEntry {
                 envelope_name: env_name.clone(),
                 filler_name,
                 universe_id,
                 transform,
+                description: meta.and_then(|m| m.description.clone()),
+                zone: meta.and_then(|m| m.zone.clone()),
+                sector: meta.and_then(|m| m.sector.clone()),
             }
         })
         .collect();
 
     let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
+    let mut filler_envelopes: HashMap<FillerName, Vec<EnvelopeName>> = HashMap::new();
     for entry in &envelope_entries {
         if let Some(filler_name) = &entry.filler_name {
             *filler_envelope_counts
                 .entry(filler_name.clone())
                 .or_insert(0) += 1;
+            filler_envelopes
+                .entry(filler_name.clone())
+                .or_default()
+                .push(entry.envelope_name.clone());
         }
     }
 
@@ -287,17 +352,25 @@ fn collect_build_report(
         .filter_map(|(name, model)| {
             let universe_id = *universe_ids.get(name)?;
             let envelope_count = *filler_envelope_counts.get(name).unwrap_or(&0);
+            let stats = model_stats(model);
             Some(FillerEntry {
                 universe_id,
                 envelope_count,
-                cell_count: model.cells().count(),
-                surface_count: model.surfaces().count(),
+                cell_count: stats.cell_count,
+                surface_count: stats.surface_count,
+                description: project_manager.filler_description(name).map(str::to_string),
+                pbs: project_manager.filler_pbs(name).map(str::to_string),
+                cell_id_range: stats.cell_id_range,
+                surface_id_range: stats.surface_id_range,
+                materials: stats.materials,
+                envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
                 name: name.clone(),
             })
         })
         .collect();
 
     Ok(BuildReport {
+        schema_version: SCHEMA_VERSION,
         config_path: config_path.display().to_string(),
         gitronics_version: env!("CARGO_PKG_VERSION"),
         commit_hash: get_hash_of_project(project_dir(config_path)),

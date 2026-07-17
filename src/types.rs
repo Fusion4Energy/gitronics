@@ -11,9 +11,37 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 /// Metadata associated with a filler model, describing how it should be placed.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FillerMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub transformations: Option<IndexMap<EnvelopeName, Option<String>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id_start: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id_end: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pbs: Option<String>,
+}
+
+/// Descriptive metadata for a single envelope (from the envelope-structure
+/// `.metadata` sidecar file). Every field is optional so that a partial or
+/// absent metadata file never blocks a build.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EnvelopeMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sector: Option<String>,
+}
+
+/// Top-level structure of an envelope-structure `.metadata` file.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct EnvelopeStructureMetadata {
+    #[serde(default)]
+    pub envelopes: IndexMap<EnvelopeName, EnvelopeMetadata>,
 }
 
 /// File stem name (filename without extension).
@@ -148,7 +176,7 @@ impl From<&str> for EnvelopeName {
 /// Universe ID in MCNP models.
 ///
 /// Example: `UniverseId::new(101)`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct UniverseId(u32);
 
 impl UniverseId {

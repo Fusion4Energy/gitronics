@@ -156,6 +156,7 @@ fn replace_fills_with_placeholders(
             .entry(filler_name)
             .or_insert_with(|| FillerMetadata {
                 transformations: Some(IndexMap::new()),
+                ..FillerMetadata::default()
             })
             .transformations
             .get_or_insert_with(IndexMap::new)
