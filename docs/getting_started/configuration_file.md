@@ -80,9 +80,21 @@ Only one source file can be specified, but any number of materials, transformati
 This field is a dictionary that maps envelope cell names to filler model file stems.
 If an envelope cell name appears in the dictionary but is not found in the envelope structure file, Gitronics will raise an error.
 
+<figure class="wide" markdown="span">
+  ![How the envelopes map fills envelope cells](../assets/mapping.svg#only-dark){ width="100%" }
+  ![How the envelopes map fills envelope cells](../assets/mapping-light.svg#only-light){ width="100%" }
+  <figcaption>Each <code>envelopes</code> entry drops a filler model into the matching envelope cell; a <code>null</code> value leaves the cell as void.</figcaption>
+</figure>
+
 ## Overriding other configuration
 
 If a configuration file specifies the `overrides` field, it will inherit from the parent configuration file. The parent is loaded first and the current file is merged on top of it. Fields present in the current file take precedence; the parent provides defaults.
+
+<figure class="wide" markdown="span">
+  ![Configuration inheritance and overrides](../assets/inheritance.svg#only-dark){ width="100%" }
+  ![Configuration inheritance and overrides](../assets/inheritance-light.svg#only-light){ width="100%" }
+  <figcaption>A child config inherits scalar fields, replaces the ones it redefines, and merges the <code>envelopes</code> map entry by entry.</figcaption>
+</figure>
 
 The overriding rules are as follows:
 

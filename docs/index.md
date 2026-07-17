@@ -1,6 +1,6 @@
 # Gitronics
 
-**Gitronics** is a methodology and accompanying tool for mantaining and assembling [MCNP](https://mcnp.lanl.gov/) neutronics models from modular, version-controlled components.
+**Gitronics** is a methodology and accompanying tool for maintaining and assembling [MCNP](https://mcnp.lanl.gov/) neutronics models from modular, version-controlled components.
 
 Instead of maintaining a single monolithic MCNP input file, Gitronics lets you manage a collection of independent files that can be assembled into a complete MCNP model by running the command `gitronics build`.
 Each file can represent a different aspect of the model, such as the geometry of a system, a set of materials, a source definition or a collection of tallies.
@@ -19,6 +19,12 @@ The Gitronics methodology is already used to maintain the most complex neutronic
 ---
 
 ## How it works
+
+<figure class="wide" markdown="span">
+  ![Gitronics build pipeline](assets/flow.svg#only-dark){ width="100%" }
+  ![Gitronics build pipeline](assets/flow-light.svg#only-light){ width="100%" }
+  <figcaption>Modular components and a YAML configuration are combined by <code>gitronics build</code> into a single <code>assembled.mcnp</code> plus an HTML report.</figcaption>
+</figure>
 
 ```
 reference_model/

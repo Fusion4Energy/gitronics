@@ -26,17 +26,12 @@ It is recommended to place the envelope name place holder at the end of the cell
 !!! Warning "Space for the `FILL` card"
     The `FILL` card will be inserted by Gitronics right after the last cell parameter of the cell definition (after the `imp:p=1.0` in the example above). If there is not space to the right of the last parameter, the newly added `FILL` card may break the maximum line length of MCNP. To avoid this, it is recommended to leave some space after the last parameter of the cell definition before the envelope name placeholder as in the example above.
 
-## Title cards
-
-All the Gitronic files (geometry and data card files) should have a title card at the top of the file. 
-The title card is a single line that will be ignored by Gitronics when assembling the model, but it is useful to provide a brief description for the user when viewing the independent file.
-
 ## Do not commit large files
 
 The Gitronics methodology is designed to manage the source files of a model, not the assembled MCNP input files.
 Via the information in the header of the `assembled.mcnp` file, it is possible to reproduce the exact same model from the source files. Therefore, it is not necessary to commit the assembled MCNP input files to the repository.
 
-Commiting large files to the repository will make it slower to clone and checkout branches, and it will also make it harder to track changes.
+Committing large files to the repository will make it slower to clone and checkout branches, and it will also make it harder to track changes.
 
 !!! tip "Use `.gitignore`"
     Make use of the `.gitignore` file to avoid committing unnecessary files. You can place a `.gitignore` file with the content `*` in a folder to ignore all files in that folder (like the `output/` folder).

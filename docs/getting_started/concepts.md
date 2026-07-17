@@ -2,6 +2,12 @@
 
 The following is a list of concepts or keywords that are used throughout the documentation. 
 
+<figure class="wide" markdown="span">
+  ![How an envelope cell is filled by a filler universe](../assets/anatomy.svg#only-dark){ width="100%" }
+  ![How an envelope cell is filled by a filler universe](../assets/anatomy-light.svg#only-light){ width="100%" }
+  <figcaption>An envelope cell placeholder plus a filler universe become a <code>FILL</code> card in the assembled model &#8212; while the source files stay independent.</figcaption>
+</figure>
+
 - **Gitronics**. The name of the tool and methodology.
 - **Gitronics project**. A reactor/s or other nuclear project that is managed with the Gitronics methodology.
 - [**Git**](https://git-scm.com/). A distributed version control system that is used to track changes in the files of a **Gitronics project**.

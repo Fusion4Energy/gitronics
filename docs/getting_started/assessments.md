@@ -21,7 +21,7 @@ gitronics_project/
     │
     ├── changes/                  ← Directory containing new files
     │   ├── specific_tally.tally  ← New tally only for this assessment
-    │   └── new_diagnostic.yaml   ← New filler only for this assessment
+    │   └── new_diagnostic.mcnp   ← New filler only for this assessment
     |
     ├── output/
     │   └── assembled.mcnp        ← Assembled model for this assessment
