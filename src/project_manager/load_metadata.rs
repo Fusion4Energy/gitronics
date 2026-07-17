@@ -1,14 +1,17 @@
-use super::ProjectManager;
-use crate::types::{EnvelopeName, EnvelopeStructureMetadata, FillerMetadata, FillerName};
+use super::{Metadata, ProjectManager};
+use crate::types::{EnvelopeName, FillerName, TRANSFORMATIONS_KEY};
 use crate::utils::GitronicsError;
+use indexmap::IndexMap;
 use log::warn;
+use serde_json::Value;
 use std::{collections::HashMap, fs};
 
 impl ProjectManager {
     /// Loads and caches metadata for the given fillers.
     ///
-    /// Reads the `.metadata` files associated with each filler and stores the transformation
-    /// mappings in the internal cache of the `ProjectManager`.
+    /// Reads each filler's `.metadata` file generically: the reserved
+    /// `transformations` key drives the build, and every other key is preserved
+    /// verbatim as arbitrary, project-defined metadata.
     pub fn load_metadata_for_fillers<'a>(
         &mut self,
         filler_names: impl IntoIterator<Item = &'a FillerName>,
@@ -28,31 +31,36 @@ impl ProjectManager {
         }
         let yaml_content = fs::read_to_string(&metadata_path)
             .map_err(|source| GitronicsError::io_path(&metadata_path, source))?;
-        let filler_metadata: FillerMetadata =
-            serde_saphyr::from_str(&yaml_content).map_err(|e| {
-                GitronicsError::YamlParse(
-                    metadata_path.to_string_lossy().to_string(),
-                    e.to_string(),
-                )
-            })?;
 
-        let transformations: HashMap<EnvelopeName, Option<String>> = filler_metadata
-            .transformations
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        let parse_err =
+            |e: String| GitronicsError::YamlParse(metadata_path.to_string_lossy().to_string(), e);
+
+        // Parse the whole file as a free-form, order-preserving map.
+        let mut raw: Metadata =
+            serde_saphyr::from_str(&yaml_content).map_err(|e| parse_err(e.to_string()))?;
+
+        // Extract the reserved `transformations` key; everything else is
+        // arbitrary metadata that we keep as-is.
+        let transformations: HashMap<EnvelopeName, Option<String>> =
+            match raw.shift_remove(TRANSFORMATIONS_KEY) {
+                Some(value) if !value.is_null() => {
+                    let map: IndexMap<EnvelopeName, Option<String>> =
+                        serde_json::from_value(value).map_err(|e| parse_err(e.to_string()))?;
+                    map.into_iter().collect()
+                }
+                _ => HashMap::new(),
+            };
 
         self.metadata.insert(filler_name.clone(), transformations);
-        self.filler_details
-            .insert(filler_name.clone(), filler_metadata);
+        self.filler_metadata.insert(filler_name.clone(), raw);
         Ok(())
     }
 
-    /// Loads the descriptive metadata sidecar of the envelope-structure model
-    /// (`<envelope_structure>.metadata`), caching per-envelope description, zone
-    /// and sector. Best-effort: a missing or malformed file is logged and
-    /// ignored so it never blocks a build.
+    /// Loads the arbitrary metadata sidecar of the envelope-structure model
+    /// (`<envelope_structure>.metadata`), keyed per envelope. The only expected
+    /// shape is a top-level `envelopes:` map; each envelope's value is stored
+    /// verbatim as free-form metadata. Best-effort: a missing or malformed file
+    /// is logged and ignored so it never blocks a build.
     pub fn load_envelope_metadata(&mut self) {
         let Some(structure_name) = self.model_config.envelope_structure() else {
             return;
@@ -74,14 +82,38 @@ impl ProjectManager {
                 return;
             }
         };
-        match serde_saphyr::from_str::<EnvelopeStructureMetadata>(&yaml_content) {
-            Ok(parsed) => {
-                self.envelope_details = parsed.envelopes.into_iter().collect();
+
+        let top: IndexMap<String, Value> = match serde_saphyr::from_str(&yaml_content) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                warn!(
+                    "Could not parse envelope metadata `{}`: {e}",
+                    metadata_path.display()
+                );
+                return;
             }
-            Err(e) => warn!(
-                "Could not parse envelope metadata `{}`: {e}",
+        };
+
+        let Some(Value::Object(envelopes)) = top.get("envelopes") else {
+            warn!(
+                "Envelope metadata `{}` has no `envelopes:` map; ignoring.",
                 metadata_path.display()
-            ),
+            );
+            return;
+        };
+
+        for (name, value) in envelopes {
+            let fields: Metadata = match value {
+                Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                // A non-map entry (e.g. just a bare description) is still kept.
+                other => {
+                    let mut m = Metadata::new();
+                    m.insert("value".to_string(), other.clone());
+                    m
+                }
+            };
+            self.envelope_metadata
+                .insert(EnvelopeName::new(name.clone()), fields);
         }
     }
 }

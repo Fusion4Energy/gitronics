@@ -713,37 +713,45 @@ td.muted {
     gap: 6px;
 }
 
-/* ── ID allocation map ──────────────────────────────────────────────────── */
-.idmap {
-    overflow-x: auto;
+/* ── ID memory map (zoomable canvas) ────────────────────────────────────── */
+.idmap-lane {
+    margin-bottom: 22px;
 }
 
-.idmap .lane-title {
-    font-size: .8rem;
+.idmap-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 8px;
+    flex-wrap: wrap;
+}
+
+.idmap-controls .btn {
+    padding: 4px 10px;
+}
+
+.idmap-canvas {
+    width: 100%;
+    height: 96px;
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+    cursor: grab;
+    touch-action: none;
+}
+
+.idmap-canvas:active {
+    cursor: grabbing;
+}
+
+.lane-title {
+    font-size: .82rem;
     font-weight: 700;
     color: var(--text-2);
-    margin: 6px 0;
     display: flex;
     gap: 8px;
     align-items: center;
-}
-
-.idmap svg {
-    display: block;
-    width: 100%;
-}
-
-.idmap .bar {
-    cursor: pointer;
-}
-
-.idmap .bar:hover rect {
-    stroke: var(--text);
-    stroke-width: 1.5;
-}
-
-.idmap .overlap {
-    fill: var(--danger);
 }
 
 /* ── Charts ─────────────────────────────────────────────────────────────── */

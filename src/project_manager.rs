@@ -1,7 +1,9 @@
 use crate::model_config::ModelConfig;
 use crate::project_manager::load_model_config::load_config;
-use crate::types::{EnvelopeMetadata, EnvelopeName, FileName, FillerMetadata, FillerName};
+use crate::types::{EnvelopeName, FileName, FillerName};
 use crate::utils::{GitronicsError, get_file_paths};
+use indexmap::IndexMap;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::create_dir_all;
@@ -11,6 +13,10 @@ mod load_metadata;
 mod load_model_config;
 mod load_project_files;
 
+/// Free-form metadata: an ordered map of arbitrary, project-defined keys to
+/// their (possibly structured) values. Key order follows the source file.
+pub type Metadata = IndexMap<String, Value>;
+
 /// Manages a gitronics project, providing access to model files and configurations.
 #[derive(Debug)]
 pub struct ProjectManager {
@@ -18,12 +24,12 @@ pub struct ProjectManager {
     output_path: PathBuf,
     file_paths: HashMap<FileName, PathBuf>,
     metadata: HashMap<FillerName, HashMap<EnvelopeName, Option<String>>>,
-    /// Full parsed filler metadata (description, pbs, card-id range), cached per
-    /// filler as its `.metadata` sidecar is loaded.
-    filler_details: HashMap<FillerName, FillerMetadata>,
-    /// Descriptive metadata for each envelope, loaded from the envelope-structure
-    /// `.metadata` sidecar (best-effort; empty when the file is absent).
-    envelope_details: HashMap<EnvelopeName, EnvelopeMetadata>,
+    /// Arbitrary, project-defined metadata for each filler (everything in the
+    /// `.metadata` file except the reserved `transformations` key).
+    filler_metadata: HashMap<FillerName, Metadata>,
+    /// Arbitrary, project-defined metadata for each envelope, from the
+    /// envelope-structure `.metadata` sidecar (best-effort; empty when absent).
+    envelope_metadata: HashMap<EnvelopeName, Metadata>,
 }
 
 impl ProjectManager {
@@ -41,8 +47,8 @@ impl ProjectManager {
             output_path,
             model_config,
             metadata: HashMap::new(),
-            filler_details: HashMap::new(),
-            envelope_details: HashMap::new(),
+            filler_metadata: HashMap::new(),
+            envelope_metadata: HashMap::new(),
         })
     }
 
@@ -119,23 +125,14 @@ impl ProjectManager {
         self.model_config.source()
     }
 
-    /// Returns the free-text description of a filler, from its cached metadata.
-    pub fn filler_description(&self, filler_name: &FillerName) -> Option<&str> {
-        self.filler_details
-            .get(filler_name)
-            .and_then(|m| m.description.as_deref())
+    /// Returns the arbitrary, project-defined metadata of a filler, if loaded.
+    pub fn filler_metadata(&self, filler_name: &FillerName) -> Option<&Metadata> {
+        self.filler_metadata.get(filler_name)
     }
 
-    /// Returns the product-breakdown-structure (PBS) code of a filler, if any.
-    pub fn filler_pbs(&self, filler_name: &FillerName) -> Option<&str> {
-        self.filler_details
-            .get(filler_name)
-            .and_then(|m| m.pbs.as_deref())
-    }
-
-    /// Returns the descriptive metadata for an envelope, if it was loaded.
-    pub fn envelope_metadata(&self, envelope_name: &EnvelopeName) -> Option<&EnvelopeMetadata> {
-        self.envelope_details.get(envelope_name)
+    /// Returns the arbitrary, project-defined metadata of an envelope, if loaded.
+    pub fn envelope_metadata(&self, envelope_name: &EnvelopeName) -> Option<&Metadata> {
+        self.envelope_metadata.get(envelope_name)
     }
 }
 

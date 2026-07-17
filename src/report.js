@@ -21,6 +21,47 @@
     var fillerByName = {};
     fillers.forEach(function (f) { fillerByName[f.name] = f; });
 
+    // ── Free-form metadata helpers ─────────────────────────────────────────
+    // Metadata keys are project-defined and arbitrary; discover them from data.
+    function discoverKeys(items) {
+        var order = [], seen = {};
+        items.forEach(function (it) {
+            var m = it.metadata; if (!m) return;
+            Object.keys(m).forEach(function (k) { if (!seen[k]) { seen[k] = 1; order.push(k); } });
+        });
+        return order;
+    }
+    var envMetaKeys = discoverKeys(envelopes);
+    var fillerMetaKeys = discoverKeys(fillers);
+
+    // Format an arbitrary metadata value (string/number/bool/array/object).
+    function metaVal(v) {
+        if (v == null) return "";
+        if (typeof v === "object") { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+        return String(v);
+    }
+    function metaGet(entry, key) {
+        return entry && entry.metadata ? entry.metadata[key] : undefined;
+    }
+    // Extent [min, max] of a run-length-encoded id list, or null if empty.
+    function idExtent(runs) {
+        if (!runs || !runs.length) return null;
+        return [runs[0][0], runs[runs.length - 1][1]];
+    }
+    // A "description"-like key, if the project uses one, for opportunistic display.
+    function descOf(entry) {
+        var m = entry && entry.metadata; if (!m) return "";
+        var k = ["description", "desc", "title", "name", "label"].find(function (x) { return m[x] != null; });
+        return k ? metaVal(m[k]) : "";
+    }
+    // Pick sensible default grouping fields (prefer conventional names if present).
+    function defaultFields(keys) {
+        var prefs = ["zone", "region", "system", "group", "sector", "row", "column", "col"];
+        var picked = prefs.filter(function (p) { return keys.indexOf(p) >= 0; });
+        if (picked.length) return picked.slice(0, 2);
+        return keys.slice(0, 2);
+    }
+
     // ── DOM helpers ────────────────────────────────────────────────────────
     function el(tag, props, kids) {
         var n = document.createElement(tag);
@@ -299,12 +340,25 @@
             .sort(function (a, b) { return b.value - a.value; }).slice(0, 12);
         if (mats.length) cols.appendChild(card("Material usage (fillers per material)", barChart(mats)));
 
-        // Per-zone rollup
-        var zones = rollupZones();
-        if (zones.length > 1 || (zones.length === 1 && zones[0].zone !== "—")) {
-            cols.appendChild(card("Envelopes per zone", barChart(zones.map(function (z) {
-                return { label: z.zone, value: z.total, sub: z.filled + "/" + z.total + " filled" };
-            }))));
+        // Breakdown by a chosen metadata field (fully generic).
+        if (envMetaKeys.length) {
+            var field = defaultFields(envMetaKeys)[0] || envMetaKeys[0];
+            var breakdownCard = card("Envelopes by " + field, el("div"));
+            var head = breakdownCard.querySelector(".card-head");
+            var sel = el("select", { class: "input", style: "width:auto;margin-left:auto" });
+            envMetaKeys.forEach(function (k) { sel.appendChild(el("option", { value: k, text: k })); });
+            sel.value = field;
+            head.appendChild(sel);
+            var bd = breakdownCard.querySelector(".card-body");
+            function paintBreakdown() {
+                clear(bd);
+                bd.appendChild(barChart(rollupBy(sel.value).map(function (g) {
+                    return { label: g.key, value: g.total, sub: g.filled + "/" + g.total + " filled" };
+                })));
+            }
+            sel.addEventListener("change", paintBreakdown);
+            paintBreakdown();
+            cols.appendChild(breakdownCard);
         }
     };
 
@@ -373,14 +427,38 @@
         return box;
     }
 
-    function rollupZones() {
+    // Group envelopes by an arbitrary field key (metadata key, or the special
+    // "__filler__"/"__universe__"). Returns [{key, total, filled}] sorted by size.
+    function groupKeyOf(e, field) {
+        if (field === "__filler__") return e.filler_name || "(null)";
+        if (field === "__universe__") return e.universe_id != null ? "u" + e.universe_id : "(null)";
+        var v = metaGet(e, field);
+        return v == null || v === "" ? "—" : metaVal(v);
+    }
+    function rollupBy(field) {
         var m = {};
         envelopes.forEach(function (e) {
-            var z = e.zone || "—";
-            if (!m[z]) m[z] = { zone: z, total: 0, filled: 0 };
-            m[z].total++; if (e.filler_name) m[z].filled++;
+            var k = groupKeyOf(e, field);
+            if (!m[k]) m[k] = { key: k, total: 0, filled: 0 };
+            m[k].total++; if (e.filler_name) m[k].filled++;
         });
         return Object.keys(m).map(function (k) { return m[k]; }).sort(function (a, b) { return b.total - a.total; });
+    }
+
+    // Options for a "group by" <select>: metadata keys + filler/universe.
+    function groupFieldOptions() {
+        var opts = [{ v: "__none__", t: "(no grouping)" }];
+        envMetaKeys.forEach(function (k) { opts.push({ v: k, t: k }); });
+        opts.push({ v: "__filler__", t: "filler" });
+        opts.push({ v: "__universe__", t: "universe" });
+        return opts;
+    }
+    function groupSelect(value, onchange) {
+        var sel = el("select", { class: "input", style: "width:auto" });
+        groupFieldOptions().forEach(function (o) { sel.appendChild(el("option", { value: o.v, text: o.t })); });
+        sel.value = value;
+        sel.addEventListener("change", function () { onchange(this.value); });
+        return sel;
     }
 
     // ── Explorer (tree) ──────────────────────────────────────────────────────
@@ -388,9 +466,18 @@
         clear(root);
         var treeHost = el("div", { class: "tree" });
         var note = el("div", { class: "count-note" });
+        var defaults = defaultFields(envMetaKeys);
+        var g1 = defaults[0] || (envMetaKeys.length ? envMetaKeys[0] : "__none__");
+        var g2 = defaults[1] || "__none__";
+        var curQ = getHash().q || "";
+
+        var sel1 = groupSelect(g1, function (v) { g1 = v; rebuild(curQ); });
+        var sel2 = groupSelect(g2, function (v) { g2 = v; rebuild(curQ); });
         var body = el("div", { class: "card-body section-gap" }, [
             el("div", { class: "toolbar" }, [
-                searchBox("Filter by envelope, filler, description, universe…", function (q) { rebuild(q); }),
+                searchBox("Filter by envelope, filler, metadata, universe…", function (q) { curQ = q; rebuild(q); }),
+                el("span", { class: "muted", style: "font-size:.8rem", text: "Group by" }), sel1,
+                el("span", { class: "muted", style: "font-size:.8rem", text: "then" }), sel2,
                 note
             ]),
             treeHost
@@ -403,54 +490,63 @@
             body
         ]));
 
+        function buildGroups(list, field) {
+            var groups = {}, order = [];
+            list.forEach(function (e) {
+                var k = groupKeyOf(e, field);
+                if (!groups[k]) { groups[k] = []; order.push(k); }
+                groups[k].push(e);
+            });
+            order.sort();
+            return { groups: groups, order: order };
+        }
+        function groupDetails(name, count, open) {
+            var det = el("details", open ? { open: "" } : {});
+            det.appendChild(el("summary", {}, [
+                el("span", { class: "tw", text: "▶" }),
+                el("span", { class: "grp-name", text: name }),
+                el("span", { class: "spring" }),
+                el("span", { class: "chip", text: count })
+            ]));
+            return det;
+        }
+
         function rebuild(q) {
             clear(treeHost);
-            q = q || "";
-            var groups = {};
-            var shown = 0;
-            envelopes.forEach(function (e) {
-                if (q && matchEnv(e).indexOf(q) < 0) return;
-                shown++;
-                var z = e.zone || "Unzoned";
-                var s = e.sector != null ? ("Sector " + e.sector) : "—";
-                (groups[z] = groups[z] || {})[s] = (groups[z][s] || []);
-                groups[z][s].push(e);
-            });
-            note.textContent = shown + " / " + envelopes.length + " envelopes";
-            var zoneKeys = Object.keys(groups).sort();
-            if (!zoneKeys.length) { treeHost.appendChild(el("div", { class: "empty", text: "No matches" })); return; }
-            var autoOpen = zoneKeys.length <= 3 || !!q;
-            zoneKeys.forEach(function (z) {
-                var secKeys = Object.keys(groups[z]).sort();
-                var zTotal = secKeys.reduce(function (a, s) { return a + groups[z][s].length; }, 0);
-                var zDet = el("details", autoOpen ? { open: "" } : {});
-                zDet.appendChild(el("summary", {}, [
-                    el("span", { class: "tw", text: "▶" }),
-                    el("span", { class: "grp-name", text: z }),
-                    el("span", { class: "spring" }),
-                    el("span", { class: "chip", text: zTotal })
-                ]));
-                secKeys.forEach(function (s) {
-                    var list = groups[z][s];
-                    var sDet = el("details", (autoOpen || secKeys.length === 1) ? { open: "" } : {});
-                    sDet.appendChild(el("summary", {}, [
-                        el("span", { class: "tw", text: "▶" }),
-                        el("span", { class: "grp-name muted", text: s }),
-                        el("span", { class: "spring" }),
-                        el("span", { class: "chip", text: list.length })
-                    ]));
-                    list.forEach(function (e) { sDet.appendChild(leafRow(e)); });
-                    zDet.appendChild(sDet);
-                });
-                treeHost.appendChild(zDet);
+            q = (q || "").toLowerCase();
+            var shown = envelopes.filter(function (e) { return !q || matchEnv(e).indexOf(q) >= 0; });
+            note.textContent = shown.length + " / " + envelopes.length + " envelopes";
+            if (!shown.length) { treeHost.appendChild(el("div", { class: "empty", text: "No matches" })); return; }
+
+            if (g1 === "__none__") { shown.forEach(function (e) { treeHost.appendChild(leafRow(e)); }); return; }
+
+            var lvl1 = buildGroups(shown, g1);
+            var autoOpen = lvl1.order.length <= 3 || !!q;
+            lvl1.order.forEach(function (k1) {
+                var list1 = lvl1.groups[k1];
+                var d1 = groupDetails(k1, list1.length, autoOpen);
+                if (g2 === "__none__" || g2 === g1) {
+                    list1.forEach(function (e) { d1.appendChild(leafRow(e)); });
+                } else {
+                    var lvl2 = buildGroups(list1, g2);
+                    lvl2.order.forEach(function (k2) {
+                        var list2 = lvl2.groups[k2];
+                        var d2 = groupDetails(k2, list2.length, autoOpen || lvl2.order.length === 1);
+                        d2.querySelector(".grp-name").classList.add("muted");
+                        list2.forEach(function (e) { d2.appendChild(leafRow(e)); });
+                        d1.appendChild(d2);
+                    });
+                }
+                treeHost.appendChild(d1);
             });
         }
-        rebuild(getHash().q || "");
+        rebuild(curQ);
     };
 
     function matchEnv(e) {
-        return [e.envelope_name, e.filler_name, e.description, e.zone, e.sector, e.universe_id, e.transform]
-            .filter(Boolean).join(" ").toLowerCase();
+        var parts = [e.envelope_name, e.filler_name, e.universe_id, e.transform];
+        if (e.metadata) Object.keys(e.metadata).forEach(function (k) { parts.push(metaVal(e.metadata[k])); });
+        return parts.filter(function (x) { return x != null && x !== ""; }).join(" ").toLowerCase();
     }
 
     function leafRow(e) {
@@ -466,7 +562,8 @@
             leaf.appendChild(el("span", { class: "chip null", text: "null" }));
         }
         leaf.appendChild(el("span", { class: "spring" }));
-        if (e.description) leaf.appendChild(el("span", { class: "desc", text: e.description }));
+        var d = descOf(e);
+        if (d) leaf.appendChild(el("span", { class: "desc", text: d }));
         if (filled) leaf.addEventListener("click", function () { openFiller(e.filler_name); });
         return leaf;
     }
@@ -475,10 +572,12 @@
     RENDER.coverage = function (root) {
         clear(root);
         var host = el("div", {});
+        var g = defaultFields(envMetaKeys)[0] || "__none__";
+        var sel = groupSelect(g, function (v) { g = v; rebuild(); });
         var body = el("div", { class: "card-body section-gap" }, [
-            el("div", { class: "legend" }, [
-                el("span", { class: "item" }, [el("span", { class: "dot-swatch", style: "background:var(--null)" }), document.createTextNode("Null / empty")]),
-                el("span", { class: "item muted", text: "Each square is an envelope, colored by the universe filling it. Hover for details, click to inspect the filler." })
+            el("div", { class: "toolbar" }, [
+                el("span", { class: "muted", style: "font-size:.8rem", text: "Group by" }), sel,
+                el("span", { class: "item muted", style: "font-size:.8rem", text: "Each square is an envelope, colored by the universe filling it. Hover for details, click to inspect the filler." })
             ]),
             host
         ]);
@@ -489,119 +588,249 @@
             body
         ]));
 
-        var byZone = {};
-        envelopes.forEach(function (e) {
-            var z = e.zone || "Unzoned";
-            (byZone[z] = byZone[z] || []).push(e);
-        });
-        Object.keys(byZone).sort().forEach(function (z) {
-            var list = byZone[z].slice().sort(function (a, b) {
-                var sa = (a.sector || "") + a.envelope_name, sb = (b.sector || "") + b.envelope_name;
-                return sa < sb ? -1 : sa > sb ? 1 : 0;
+        function rebuild() {
+            clear(host);
+            var groups = {}, order = [];
+            envelopes.forEach(function (e) {
+                var k = g === "__none__" ? "All envelopes" : groupKeyOf(e, g);
+                if (!groups[k]) { groups[k] = []; order.push(k); }
+                groups[k].push(e);
             });
-            var filled = list.filter(function (e) { return e.filler_name; }).length;
-            var zwrap = el("div", { class: "cov-zone" });
-            zwrap.appendChild(el("h4", {}, [
-                el("span", { text: z }),
-                el("span", { class: "chip", text: filled + "/" + list.length })
-            ]));
-            var grid = el("div", { class: "cov-grid" });
-            list.forEach(function (e) {
-                var filledCell = !!e.filler_name;
-                var cell = el("div", {
-                    class: "cov-cell",
-                    style: "background:" + (filledCell ? uColor(e.universe_id) : "var(--null-weak)")
+            order.sort();
+            order.forEach(function (k) {
+                var list = groups[k].slice().sort(function (a, b) {
+                    return a.envelope_name < b.envelope_name ? -1 : a.envelope_name > b.envelope_name ? 1 : 0;
                 });
-                cell.addEventListener("mousemove", function (ev) {
-                    showTip("<b>" + esc(e.envelope_name) + "</b>" +
-                        (e.description ? "<br>" + esc(e.description) : "") +
-                        (e.sector != null ? "<br>sector " + esc(e.sector) : "") +
-                        "<br>" + (filledCell ? "→ " + esc(e.filler_name) + " (u" + e.universe_id + ")" : "null"),
-                        ev.clientX, ev.clientY);
+                var filled = list.filter(function (e) { return e.filler_name; }).length;
+                var zwrap = el("div", { class: "cov-zone" });
+                zwrap.appendChild(el("h4", {}, [
+                    el("span", { text: k }),
+                    el("span", { class: "chip", text: filled + "/" + list.length })
+                ]));
+                var grid = el("div", { class: "cov-grid" });
+                list.forEach(function (e) {
+                    var filledCell = !!e.filler_name;
+                    var cell = el("div", {
+                        class: "cov-cell",
+                        style: "background:" + (filledCell ? uColor(e.universe_id) : "var(--null-weak)")
+                    });
+                    cell.addEventListener("mousemove", function (ev) { showTip(envTip(e), ev.clientX, ev.clientY); });
+                    cell.addEventListener("mouseleave", hideTip);
+                    if (filledCell) cell.addEventListener("click", function () { hideTip(); openFiller(e.filler_name); });
+                    grid.appendChild(cell);
                 });
-                cell.addEventListener("mouseleave", hideTip);
-                if (filledCell) cell.addEventListener("click", function () { hideTip(); openFiller(e.filler_name); });
-                grid.appendChild(cell);
+                zwrap.appendChild(grid);
+                host.appendChild(zwrap);
             });
-            zwrap.appendChild(grid);
-            host.appendChild(zwrap);
-        });
+        }
+        rebuild();
     };
+
+    // Tooltip HTML for an envelope: name, description, up to 4 metadata fields, filler.
+    function envTip(e) {
+        var s = "<b>" + esc(e.envelope_name) + "</b>";
+        var d = descOf(e); if (d) s += "<br>" + esc(d);
+        if (e.metadata) {
+            Object.keys(e.metadata).slice(0, 5).forEach(function (k) {
+                if (["description", "desc", "title"].indexOf(k) >= 0) return;
+                s += "<br><span style='opacity:.7'>" + esc(k) + ":</span> " + esc(metaVal(e.metadata[k]));
+            });
+        }
+        s += "<br>" + (e.filler_name ? "→ " + esc(e.filler_name) + " (u" + e.universe_id + ")" : "null");
+        return s;
+    }
 
     function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
-    // ── ID allocation map ────────────────────────────────────────────────────
+    // ── ID memory map (zoomable, exact ids) ──────────────────────────────────
     RENDER.idmap = function (root) {
         clear(root);
         var body = el("div", { class: "card-body section-gap" });
         root.appendChild(el("div", { class: "card" }, [
-            el("div", { class: "card-head" }, [el("h2", { text: "Card-ID allocation map" }),
+            el("div", { class: "card-head" }, [el("h2", { text: "Card-ID memory map" }),
             el("span", { class: "spring" }),
-            el("span", { class: "muted count-note", text: "Each bar spans a filler's [min…max] id range, colored by universe. Rows pack overlapping spans; the build guarantees the actual ids never collide." })]),
+            el("span", { class: "muted count-note", text: "Exact id positions, colored by universe. Scroll to zoom, drag to pan; zoom in to see every individual id." })]),
             body
         ]));
-        body.appendChild(idLane("Cell ids", "cell_id_range"));
-        body.appendChild(idLane("Surface ids", "surface_id_range"));
+        body.appendChild(zoomLane("Cell ids", "cell_id_runs"));
+        body.appendChild(zoomLane("Surface ids", "surface_id_runs"));
     };
 
-    function idLane(title, key) {
-        var items = fillers.filter(function (f) { return f[key]; })
-            .map(function (f) { return { f: f, min: f[key].min, max: f[key].max }; })
-            .sort(function (a, b) { return a.min - b.min || a.max - b.max; });
-        var wrap = el("div", { class: "idmap" });
-        wrap.appendChild(el("div", { class: "lane-title", text: title + " · " + items.length + " fillers" }));
-        if (!items.length) { wrap.appendChild(el("div", { class: "empty", text: "No id-range data available." })); return wrap; }
+    function zoomLane(title, key) {
+        // Flatten every filler's runs into disjoint segments over the id axis.
+        var segs = [];
+        fillers.forEach(function (f) {
+            (f[key] || []).forEach(function (r) { segs.push({ s: r[0], e: r[1], f: f }); });
+        });
+        segs.sort(function (a, b) { return a.s - b.s; });
 
-        var gmin = items[0].min, gmax = items.reduce(function (m, it) { return Math.max(m, it.max); }, items[0].max);
-        var span = (gmax - gmin) || 1;
+        var wrap = el("div", { class: "idmap-lane" });
+        if (!segs.length) {
+            wrap.appendChild(el("div", { class: "lane-title", text: title }));
+            wrap.appendChild(el("div", { class: "empty", text: "No id data available." }));
+            return wrap;
+        }
 
-        // Greedy row packing so overlapping spans stack into distinct rows.
-        var rows = [];
-        items.forEach(function (it) {
-            var placed = false;
-            for (var r = 0; r < rows.length; r++) {
-                if (rows[r] < it.min) { it.row = r; rows[r] = it.max; placed = true; break; }
+        var gmin = segs[0].s;
+        var gmax = segs.reduce(function (m, x) { return Math.max(m, x.e); }, segs[0].e);
+        var used = segs.reduce(function (a, x) { return a + (x.e - x.s + 1); }, 0);
+        var domSpan = gmax - gmin + 1;
+        var minSpan = Math.min(16, domSpan);
+
+        var vs = gmin, ve = gmax + 1; // [vs, ve): current view (float, exclusive end)
+        var hoverId = null, dragging = false, moved = false, lastX = 0;
+
+        var canvas = el("canvas", { class: "idmap-canvas" });
+        var readout = el("span", { class: "count-note mono" });
+        var controls = el("div", { class: "idmap-controls" }, [
+            el("div", { class: "lane-title", text: title + " · " + fillers.length + " fillers" }),
+            el("span", { class: "spring" }),
+            el("button", { class: "btn ghost", title: "Zoom out", text: "−", onclick: function () { zoomAt(0.5, 1.6); } }),
+            el("button", { class: "btn ghost", title: "Zoom in", text: "+", onclick: function () { zoomAt(0.5, 0.625); } }),
+            el("button", { class: "btn ghost", text: "Reset", onclick: function () { vs = gmin; ve = gmax + 1; schedule(); } }),
+            readout
+        ]);
+        wrap.appendChild(controls);
+        wrap.appendChild(canvas);
+
+        function clampView() {
+            var span = Math.min(Math.max(ve - vs, minSpan), domSpan);
+            if (vs < gmin) vs = gmin;
+            ve = vs + span;
+            if (ve > gmax + 1) { ve = gmax + 1; vs = ve - span; if (vs < gmin) vs = gmin; }
+        }
+        function zoomAt(frac, factor) {
+            var idc = vs + frac * (ve - vs);
+            var span = Math.min(Math.max((ve - vs) * factor, minSpan), domSpan);
+            vs = idc - frac * span; ve = vs + span; clampView(); schedule();
+        }
+        function idAtPx(px, W) { return vs + (px / W) * (ve - vs); }
+        function segAt(id) {
+            var lo = 0, hi = segs.length - 1, res = -1;
+            while (lo <= hi) { var m = (lo + hi) >> 1; if (segs[m].s <= id) { res = m; lo = m + 1; } else hi = m - 1; }
+            return (res >= 0 && id <= segs[res].e) ? segs[res] : null;
+        }
+
+        var raf = 0;
+        function schedule() { if (!raf) raf = requestAnimationFrame(function () { raf = 0; draw(); }); }
+
+        function draw() {
+            var dpr = window.devicePixelRatio || 1;
+            var W = canvas.clientWidth || 600, Hpx = canvas.clientHeight || 90;
+            canvas.width = Math.round(W * dpr); canvas.height = Math.round(Hpx * dpr);
+            var ctx = canvas.getContext("2d");
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, W, Hpx);
+            var cs = getComputedStyle(document.documentElement);
+            var cBorder = cs.getPropertyValue("--border").trim() || "#ddd";
+            var cText3 = cs.getPropertyValue("--text-3").trim() || "#888";
+            var cSurface = cs.getPropertyValue("--surface").trim() || "#fff";
+            var cTrack = cs.getPropertyValue("--surface-3").trim() || "#eee";
+
+            var laneTop = 8, laneH = Hpx - 34;
+            function X(id) { return (id - vs) / (ve - vs) * W; }
+
+            ctx.fillStyle = cTrack;
+            ctx.fillRect(0, laneTop, W, laneH);
+
+            // Segments (binary-search first visible for efficiency).
+            for (var i = 0; i < segs.length; i++) {
+                var sg = segs[i];
+                if (sg.e < vs) continue;
+                if (sg.s > ve) break;
+                var x0 = Math.max(0, X(sg.s));
+                var x1 = Math.min(W, X(sg.e + 1));
+                if (x1 <= x0) continue;
+                ctx.fillStyle = uColor(sg.f.universe_id);
+                ctx.fillRect(x0, laneTop, Math.max(1, x1 - x0), laneH);
             }
-            if (!placed) { it.row = rows.length; rows.push(it.max); }
-        });
 
-        var W = 1000, rowH = 22, gap = 4, padL = 4, padR = 4, top = 6;
-        var H = top + rows.length * (rowH + gap) + 26;
-        var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none", height: H });
-        function X(v) { return padL + (v - gmin) / span * (W - padL - padR); }
-
-        items.forEach(function (it, i) {
-            var x = X(it.min), w = Math.max(2, X(it.max) - x), y = top + it.row * (rowH + gap);
-            var g = svgEl("g", { class: "bar" });
-            var rect = svgEl("rect", {
-                x: x, y: y, width: w, height: rowH, rx: 4,
-                fill: uColor(it.f.universe_id),
-                "fill-opacity": 0.85, stroke: "var(--surface)", "stroke-width": 0.5
-            });
-            g.appendChild(rect);
-            if (w > 46) {
-                var t = svgEl("text", { x: x + 5, y: y + rowH / 2 + 4, "font-size": 11, fill: "#fff", "font-family": "var(--font-mono)" });
-                t.textContent = it.f.name.replace(/^universe_/, "u");
-                g.appendChild(t);
+            var ppid = W / (ve - vs); // pixels per id
+            // When zoomed in, delineate every individual id and label it.
+            if (ppid >= 6) {
+                ctx.strokeStyle = cSurface; ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+                ctx.beginPath();
+                var startId = Math.ceil(vs), endId = Math.floor(ve - 1e-9);
+                for (var k = startId; k <= endId; k++) { var xx = X(k); ctx.moveTo(xx, laneTop); ctx.lineTo(xx, laneTop + laneH); }
+                ctx.stroke(); ctx.globalAlpha = 1;
+                if (ppid >= 34) {
+                    ctx.fillStyle = cSurface; ctx.font = "10px " + (cs.getPropertyValue("--font-mono") || "monospace");
+                    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                    for (var k2 = startId; k2 <= endId; k2++) {
+                        if (segAt(k2)) ctx.fillText(String(k2), X(k2) + ppid / 2, laneTop + laneH / 2);
+                    }
+                }
             }
-            g.addEventListener("mousemove", function (ev) {
-                showTip("<b>" + esc(it.f.name) + "</b><br>" + title.toLowerCase() + ": " + fmt(it.min) + " – " + fmt(it.max) +
-                    "<br>" + fmt(it.max - it.min + 1) + " ids · u" + it.f.universe_id,
-                    ev.clientX, ev.clientY);
-            });
-            g.addEventListener("mouseleave", hideTip);
-            g.addEventListener("click", function () { hideTip(); openFiller(it.f.name); });
-            svg.appendChild(g);
+
+            // Bottom axis with id value labels.
+            ctx.fillStyle = cText3; ctx.strokeStyle = cBorder; ctx.lineWidth = 1;
+            ctx.font = "11px " + (cs.getPropertyValue("--font-mono") || "monospace");
+            ctx.textBaseline = "top";
+            for (var t = 0; t <= 5; t++) {
+                var v = Math.round(vs + (t / 5) * (ve - vs));
+                var x = (t / 5) * W;
+                ctx.beginPath(); ctx.moveTo(x, laneTop + laneH); ctx.lineTo(x, laneTop + laneH + 4); ctx.stroke();
+                ctx.textAlign = t === 0 ? "left" : t === 5 ? "right" : "center";
+                ctx.fillText(fmt(v), Math.min(Math.max(x, 1), W - 1), laneTop + laneH + 6);
+            }
+
+            // Hover cursor line.
+            if (hoverId != null && hoverId >= vs && hoverId < ve) {
+                var hx = X(hoverId + 0.5);
+                ctx.strokeStyle = cText3; ctx.globalAlpha = 0.7; ctx.beginPath();
+                ctx.moveTo(hx, laneTop); ctx.lineTo(hx, laneTop + laneH); ctx.stroke(); ctx.globalAlpha = 1;
+            }
+
+            var util = Math.round((used / domSpan) * 100);
+            readout.textContent = "ids " + fmt(Math.floor(vs)) + "–" + fmt(Math.ceil(ve - 1)) +
+                " · " + fmt(used) + " used across " + fmt(domSpan) + " (" + util + "% dense)";
+        }
+
+        canvas.addEventListener("wheel", function (e) {
+            e.preventDefault();
+            var rect = canvas.getBoundingClientRect();
+            var W = canvas.clientWidth;
+            var frac = (e.clientX - rect.left) / W;
+            zoomAt(frac, e.deltaY < 0 ? 0.82 : 1.22);
+        }, { passive: false });
+
+        canvas.addEventListener("pointerdown", function (e) {
+            dragging = true; moved = false; lastX = e.clientX;
+            try { canvas.setPointerCapture(e.pointerId); } catch (err) { }
         });
-        // axis
-        [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
-            var v = Math.round(gmin + t * span), x = X(v);
-            svg.appendChild(svgEl("line", { x1: x, y1: top, x2: x, y2: H - 22, stroke: "var(--border)", "stroke-width": 0.5, "stroke-dasharray": "2 3" }));
-            var lab = svgEl("text", { x: Math.min(Math.max(x, 20), W - 20), y: H - 6, "text-anchor": "middle", "font-size": 11, fill: "var(--text-3)", "font-family": "var(--font-mono)" });
-            lab.textContent = fmt(v);
-            svg.appendChild(lab);
+        canvas.addEventListener("pointermove", function (e) {
+            var rect = canvas.getBoundingClientRect();
+            var W = canvas.clientWidth;
+            var mx = e.clientX - rect.left;
+            if (dragging) {
+                var dx = e.clientX - lastX; lastX = e.clientX;
+                if (Math.abs(dx) > 2) moved = true;
+                var shift = -dx / W * (ve - vs);
+                vs += shift; ve += shift; clampView(); hideTip(); schedule();
+                return;
+            }
+            var id = Math.floor(idAtPx(mx, W));
+            hoverId = id;
+            var seg = segAt(id);
+            if (seg) {
+                showTip("<b>" + esc(seg.f.name) + "</b><br>id " + fmt(id) + " · u" + seg.f.universe_id +
+                    "<br>run " + fmt(seg.s) + "–" + fmt(seg.e) + " (" + fmt(seg.e - seg.s + 1) + " ids)", e.clientX, e.clientY);
+                canvas.style.cursor = "pointer";
+            } else { hideTip(); canvas.style.cursor = "grab"; }
+            schedule();
         });
-        wrap.appendChild(svg);
+        canvas.addEventListener("pointerup", function (e) {
+            dragging = false;
+            if (!moved) {
+                var rect = canvas.getBoundingClientRect();
+                var seg = segAt(Math.floor(idAtPx(e.clientX - rect.left, canvas.clientWidth)));
+                if (seg) { hideTip(); openFiller(seg.f.name); }
+            }
+        });
+        canvas.addEventListener("pointerleave", function () { hoverId = null; dragging = false; hideTip(); schedule(); });
+
+        if (window.ResizeObserver) { new ResizeObserver(schedule).observe(canvas); }
+        requestAnimationFrame(draw);
         return wrap;
     }
 
@@ -611,18 +840,21 @@
         clear(root);
         var tbody = el("tbody");
         var note = el("div", { class: "count-note" });
+        // Fixed derived columns + one dynamic column per discovered metadata key.
         var cols = [
-            { k: "name", t: "Filler", cls: "name" },
-            { k: "universe_id", t: "Universe", cls: "num" },
-            { k: "envelope_count", t: "Envelopes", cls: "num" },
-            { k: "cell_count", t: "Cells", cls: "num" },
-            { k: "surface_count", t: "Surfaces", cls: "num" },
-            { k: "pbs", t: "PBS", cls: "" },
-            { k: "description", t: "Description", cls: "muted" }
+            { k: "name", t: "Filler", num: false },
+            { k: "universe_id", t: "Universe", num: true },
+            { k: "envelope_count", t: "Envelopes", num: true },
+            { k: "cell_count", t: "Cells", num: true },
+            { k: "surface_count", t: "Surfaces", num: true }
         ];
+        fillerMetaKeys.forEach(function (k) { cols.push({ k: k, t: k, num: false, meta: true }); });
+
+        function cellVal(f, c) { return c.meta ? metaGet(f, c.k) : f[c.k]; }
+
         var thead = el("thead"), htr = el("tr");
         cols.forEach(function (c) {
-            var th = el("th", { class: c.cls === "num" ? "num" : "" }, [
+            var th = el("th", { class: c.num ? "num" : "" }, [
                 document.createTextNode(c.t), el("span", { class: "arrow", text: " " })
             ]);
             th.addEventListener("click", function () {
@@ -634,21 +866,26 @@
         thead.appendChild(htr);
         var table = el("table", { class: "data" }, [thead, tbody]);
 
+        var colByKey = {}; cols.forEach(function (c) { colByKey[c.k] = c; });
+
         var curQ = "";
         function paint(q) {
             curQ = q || "";
             clear(tbody);
             var rows = fillers.filter(function (f) {
                 if (!curQ) return true;
-                return [f.name, f.universe_id, f.pbs, f.description].filter(Boolean).join(" ").toLowerCase().indexOf(curQ) >= 0;
+                var hay = [f.name, f.universe_id];
+                fillerMetaKeys.forEach(function (k) { hay.push(metaVal(metaGet(f, k))); });
+                return hay.filter(Boolean).join(" ").toLowerCase().indexOf(curQ) >= 0;
             });
-            var key = fillerSort.key, dir = fillerSort.dir;
+            var sc = colByKey[fillerSort.key] || cols[0], dir = fillerSort.dir;
             rows.sort(function (a, b) {
-                var av = a[key], bv = b[key];
-                if (av == null) av = typeof bv === "number" ? -Infinity : "";
-                if (bv == null) bv = typeof av === "number" ? -Infinity : "";
-                if (typeof av === "string" || typeof bv === "string") return String(av).localeCompare(String(bv)) * dir;
-                return (av - bv) * dir;
+                var av = cellVal(a, sc), bv = cellVal(b, sc);
+                var an = typeof av === "number", bn = typeof bv === "number";
+                if (an && bn) return (av - bv) * dir;
+                if (av == null || av === "") av = "";
+                if (bv == null || bv === "") bv = "";
+                return String(metaVal(av)).localeCompare(String(metaVal(bv)), undefined, { numeric: true }) * dir;
             });
             note.textContent = rows.length + " / " + fillers.length + " fillers";
             rows.forEach(function (f) {
@@ -661,8 +898,10 @@
                 tr.appendChild(el("td", { class: "num", text: fmt(f.envelope_count) }));
                 tr.appendChild(el("td", { class: "num", text: fmt(f.cell_count) }));
                 tr.appendChild(el("td", { class: "num", text: fmt(f.surface_count) }));
-                tr.appendChild(el("td", { text: f.pbs || "—" }));
-                tr.appendChild(el("td", { class: "muted", text: f.description || "—" }));
+                fillerMetaKeys.forEach(function (k) {
+                    var v = metaGet(f, k);
+                    tr.appendChild(el("td", { class: "muted", text: v == null ? "—" : metaVal(v) }));
+                });
                 tr.addEventListener("click", function () { openFiller(f.name); });
                 tbody.appendChild(tr);
             });
@@ -805,11 +1044,12 @@
         var f = fillerByName[name];
         if (!f) return;
         clear(drawer);
+        var desc = descOf(f);
         drawer.appendChild(el("div", { class: "drawer-head" }, [
             el("span", { class: "dot-swatch", style: "background:" + uColor(f.universe_id) + ";width:16px;height:16px;margin-top:4px" }),
             el("div", { class: "spring" }, [
                 el("h3", { text: f.name }),
-                f.description ? el("div", { class: "muted", style: "font-size:.84rem;margin-top:2px", text: f.description }) : null
+                desc ? el("div", { class: "muted", style: "font-size:.84rem;margin-top:2px", text: desc }) : null
             ]),
             el("button", { class: "iconbtn", title: "Close", onclick: closeDrawer, text: "✕" })
         ]));
@@ -820,10 +1060,22 @@
         row("Envelopes filled", String(f.envelope_count));
         row("Cells", fmt(f.cell_count));
         row("Surfaces", fmt(f.surface_count));
-        if (f.pbs) row("PBS", f.pbs);
-        if (f.cell_id_range) row("Cell id range", fmt(f.cell_id_range.min) + " – " + fmt(f.cell_id_range.max));
-        if (f.surface_id_range) row("Surface id range", fmt(f.surface_id_range.min) + " – " + fmt(f.surface_id_range.max));
+        var cr = idExtent(f.cell_id_runs), sr = idExtent(f.surface_id_runs);
+        if (cr) row("Cell ids", fmt(cr[0]) + " – " + fmt(cr[1]) + " · " + f.cell_id_runs.length + " run" + (f.cell_id_runs.length > 1 ? "s" : ""));
+        if (sr) row("Surface ids", fmt(sr[0]) + " – " + fmt(sr[1]) + " · " + f.surface_id_runs.length + " run" + (f.surface_id_runs.length > 1 ? "s" : ""));
         body.appendChild(kv);
+
+        // Arbitrary, project-defined metadata (rendered generically).
+        var mkeys = f.metadata ? Object.keys(f.metadata).filter(function (k) { return ["description", "desc", "title"].indexOf(k) < 0; }) : [];
+        if (mkeys.length) {
+            body.appendChild(el("div", { class: "subhead", text: "Metadata" }));
+            var mkv = el("dl", { class: "kv" });
+            mkeys.forEach(function (k) {
+                mkv.appendChild(el("dt", { text: k }));
+                mkv.appendChild(el("dd", { text: metaVal(f.metadata[k]) }));
+            });
+            body.appendChild(mkv);
+        }
 
         if (f.materials && f.materials.length) {
             body.appendChild(el("div", { class: "subhead", text: "Materials (" + f.materials.length + ")" }));
@@ -841,7 +1093,8 @@
                     el("span", { class: "en", text: e.envelope_name })
                 ]);
                 if (e.transform) r.appendChild(el("span", { class: "chip", text: e.transform }));
-                if (e.zone) r.appendChild(el("span", { class: "chip null", text: e.zone }));
+                var d = descOf(e);
+                if (d) r.appendChild(el("span", { class: "desc", text: d }));
                 list.appendChild(r);
             });
             body.appendChild(list);

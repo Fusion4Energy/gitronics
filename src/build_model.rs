@@ -1,4 +1,4 @@
-use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry, IdRange, SCHEMA_VERSION};
+use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry, SCHEMA_VERSION};
 use crate::project_manager::ProjectManager;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
 use crate::utils::GitronicsError;
@@ -235,22 +235,35 @@ fn add_fill_cards_to_envelopes(
 struct ModelStats {
     cell_count: usize,
     surface_count: usize,
-    cell_id_range: Option<IdRange>,
-    surface_id_range: Option<IdRange>,
+    /// Exact cell ids used, run-length encoded as inclusive `[start, end]` runs.
+    cell_id_runs: Vec<[i64; 2]>,
+    /// Exact surface ids used, run-length encoded as inclusive `[start, end]`.
+    surface_id_runs: Vec<[i64; 2]>,
     materials: Vec<i64>,
 }
 
-/// Computes cell/surface counts, id ranges and the distinct material set of a
-/// model in a single pass over its cells and surfaces.
+/// Coalesces a set of ids into sorted, inclusive `[start, end]` runs of
+/// consecutive values (a compact, lossless encoding of the exact id positions).
+fn runs_from_ids(mut ids: Vec<i64>) -> Vec<[i64; 2]> {
+    ids.sort_unstable();
+    ids.dedup();
+    let mut runs: Vec<[i64; 2]> = Vec::new();
+    for id in ids {
+        match runs.last_mut() {
+            Some(last) if id == last[1] + 1 => last[1] = id,
+            _ => runs.push([id, id]),
+        }
+    }
+    runs
+}
+
+/// Computes cell/surface counts, exact id runs and the distinct material set of
+/// a model in a single pass over its cells and surfaces.
 fn model_stats(model: &Model) -> ModelStats {
-    let mut cell_count = 0usize;
-    let mut cell_min = i64::MAX;
-    let mut cell_max = i64::MIN;
+    let mut cell_ids = Vec::new();
     let mut materials: BTreeSet<i64> = BTreeSet::new();
     for cell in model.cells() {
-        cell_count += 1;
-        cell_min = cell_min.min(cell.id);
-        cell_max = cell_max.max(cell.id);
+        cell_ids.push(cell.id);
         if let Some(m) = cell.material
             && m != 0
         {
@@ -258,26 +271,13 @@ fn model_stats(model: &Model) -> ModelStats {
         }
     }
 
-    let mut surface_count = 0usize;
-    let mut surf_min = i64::MAX;
-    let mut surf_max = i64::MIN;
-    for surface in model.surfaces() {
-        surface_count += 1;
-        surf_min = surf_min.min(surface.id);
-        surf_max = surf_max.max(surface.id);
-    }
+    let surface_ids: Vec<i64> = model.surfaces().map(|s| s.id).collect();
 
     ModelStats {
-        cell_count,
-        surface_count,
-        cell_id_range: (cell_count > 0).then_some(IdRange {
-            min: cell_min,
-            max: cell_max,
-        }),
-        surface_id_range: (surface_count > 0).then_some(IdRange {
-            min: surf_min,
-            max: surf_max,
-        }),
+        cell_count: cell_ids.len(),
+        surface_count: surface_ids.len(),
+        cell_id_runs: runs_from_ids(cell_ids),
+        surface_id_runs: runs_from_ids(surface_ids),
         materials: materials.into_iter().collect(),
     }
 }
@@ -320,15 +320,16 @@ fn collect_build_report(
                     .map(str::to_string)
             });
 
-            let meta = project_manager.envelope_metadata(env_name);
+            let meta = project_manager
+                .envelope_metadata(env_name)
+                .cloned()
+                .unwrap_or_default();
             EnvelopeEntry {
                 envelope_name: env_name.clone(),
                 filler_name,
                 universe_id,
                 transform,
-                description: meta.and_then(|m| m.description.clone()),
-                zone: meta.and_then(|m| m.zone.clone()),
-                sector: meta.and_then(|m| m.sector.clone()),
+                metadata: meta,
             }
         })
         .collect();
@@ -358,12 +359,14 @@ fn collect_build_report(
                 envelope_count,
                 cell_count: stats.cell_count,
                 surface_count: stats.surface_count,
-                description: project_manager.filler_description(name).map(str::to_string),
-                pbs: project_manager.filler_pbs(name).map(str::to_string),
-                cell_id_range: stats.cell_id_range,
-                surface_id_range: stats.surface_id_range,
+                cell_id_runs: stats.cell_id_runs,
+                surface_id_runs: stats.surface_id_runs,
                 materials: stats.materials,
                 envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
+                metadata: project_manager
+                    .filler_metadata(name)
+                    .cloned()
+                    .unwrap_or_default(),
                 name: name.clone(),
             })
         })

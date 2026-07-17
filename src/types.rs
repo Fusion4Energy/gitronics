@@ -10,39 +10,21 @@ use std::ops::Deref;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-/// Metadata associated with a filler model, describing how it should be placed.
+/// Metadata associated with a filler model.
+///
+/// Only `transformations` is meaningful to the build itself; every other key in
+/// the file is arbitrary, project-defined metadata. This type is used for
+/// *serialisation* (e.g. by `migrate`); loading parses files generically into a
+/// free-form map so that any user-defined field is preserved (see
+/// `ProjectManager::filler_metadata`).
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FillerMetadata {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
     pub transformations: Option<IndexMap<EnvelopeName, Option<String>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub card_id_start: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub card_id_end: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pbs: Option<String>,
 }
 
-/// Descriptive metadata for a single envelope (from the envelope-structure
-/// `.metadata` sidecar file). Every field is optional so that a partial or
-/// absent metadata file never blocks a build.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct EnvelopeMetadata {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub zone: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sector: Option<String>,
-}
-
-/// Top-level structure of an envelope-structure `.metadata` file.
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct EnvelopeStructureMetadata {
-    #[serde(default)]
-    pub envelopes: IndexMap<EnvelopeName, EnvelopeMetadata>,
-}
+/// The reserved metadata key that carries per-envelope transformations. Every
+/// other key in a filler's `.metadata` file is treated as free-form metadata.
+pub const TRANSFORMATIONS_KEY: &str = "transformations";
 
 /// File stem name (filename without extension).
 ///

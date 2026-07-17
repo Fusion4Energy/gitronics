@@ -11,20 +11,15 @@
 
 use serde::Serialize;
 
+use crate::project_manager::Metadata;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
+use indexmap::IndexMap;
 
 /// Schema version of the emitted manifest. Bump on breaking changes so the
 /// viewer (and downstream tooling) can adapt.
 pub const SCHEMA_VERSION: u32 = 1;
 
 // ─── Public data types ────────────────────────────────────────────────────────
-
-/// An inclusive `[min, max]` id range.
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct IdRange {
-    pub min: i64,
-    pub max: i64,
-}
 
 /// One envelope in the assembled model.
 #[derive(Debug, Serialize)]
@@ -38,12 +33,9 @@ pub struct EnvelopeEntry {
     /// Raw transform text (e.g. `(40)`, `*(…)`) or `None`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transform: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub zone: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sector: Option<String>,
+    /// Arbitrary, project-defined metadata (any keys the user chose to record).
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub metadata: Metadata,
 }
 
 /// One filler model in the assembled model.
@@ -54,18 +46,19 @@ pub struct FillerEntry {
     pub envelope_count: usize,
     pub cell_count: usize,
     pub surface_count: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pbs: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cell_id_range: Option<IdRange>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub surface_id_range: Option<IdRange>,
+    /// The exact cell ids used, run-length encoded as inclusive `[start, end]`
+    /// runs (sorted). Compact yet lossless — the viewer expands these to show
+    /// every individual id position.
+    pub cell_id_runs: Vec<[i64; 2]>,
+    /// The exact surface ids used, run-length encoded as inclusive `[start, end]`.
+    pub surface_id_runs: Vec<[i64; 2]>,
     /// Distinct, sorted material numbers referenced by this filler's cells.
     pub materials: Vec<i64>,
     /// Names of the envelopes this filler fills.
     pub envelopes: Vec<EnvelopeName>,
+    /// Arbitrary, project-defined metadata (any keys the user chose to record).
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub metadata: Metadata,
 }
 
 /// The complete build-report manifest.
@@ -171,6 +164,15 @@ fn push_escaped_text(out: &mut String, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    /// Builds a free-form metadata map from `(key, json-value)` pairs.
+    fn meta(pairs: &[(&str, serde_json::Value)]) -> Metadata {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
 
     /// A minimal report: one filled envelope with a transform, one filled
     /// envelope without, one null envelope, and one filler used by two envelopes.
@@ -189,27 +191,25 @@ mod tests {
                     filler_name: Some(FillerName::new("universe_101")),
                     universe_id: Some(UniverseId::new(101)),
                     transform: Some("TR1".to_string()),
-                    description: Some("Blanket A".to_string()),
-                    zone: Some("Tokamak".to_string()),
-                    sector: Some("1".to_string()),
+                    metadata: meta(&[
+                        ("description", json!("Blanket A")),
+                        ("zone", json!("Tokamak")),
+                        ("sector", json!("1")),
+                    ]),
                 },
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_b"),
                     filler_name: Some(FillerName::new("universe_101")),
                     universe_id: Some(UniverseId::new(101)),
                     transform: None,
-                    description: None,
-                    zone: Some("Tokamak".to_string()),
-                    sector: Some("1".to_string()),
+                    metadata: meta(&[("zone", json!("Tokamak")), ("sector", json!("1"))]),
                 },
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_null"),
                     filler_name: None,
                     universe_id: None,
                     transform: None,
-                    description: None,
-                    zone: None,
-                    sector: None,
+                    metadata: Metadata::new(),
                 },
             ],
             filler_entries: vec![FillerEntry {
@@ -218,18 +218,14 @@ mod tests {
                 envelope_count: 2,
                 cell_count: 120,
                 surface_count: 200,
-                description: Some("Central solenoid".to_string()),
-                pbs: Some("11".to_string()),
-                cell_id_range: Some(IdRange {
-                    min: 250000,
-                    max: 250041,
-                }),
-                surface_id_range: Some(IdRange {
-                    min: 250000,
-                    max: 250129,
-                }),
+                cell_id_runs: vec![[250000, 250041], [250100, 250178]],
+                surface_id_runs: vec![[250000, 250199]],
                 materials: vec![110, 907],
                 envelopes: vec![EnvelopeName::new("env_a"), EnvelopeName::new("env_b")],
+                metadata: meta(&[
+                    ("description", json!("Central solenoid")),
+                    ("pbs", json!("11")),
+                ]),
             }],
             materials: vec!["all_materials.mat".to_string()],
             tallies: vec!["neutron_flux.tally".to_string()],
@@ -295,24 +291,32 @@ mod tests {
     }
 
     #[test]
-    fn json_includes_enriched_metadata() {
+    fn json_carries_arbitrary_metadata_verbatim() {
         let value: serde_json::Value = serde_json::from_str(&sample_report().to_json()).unwrap();
         let filler = &value["filler_entries"][0];
-        assert_eq!(filler["pbs"], "11");
-        assert_eq!(filler["description"], "Central solenoid");
-        assert_eq!(filler["cell_id_range"]["min"], 250000);
-        assert_eq!(filler["cell_id_range"]["max"], 250041);
-        assert_eq!(filler["materials"][0], 110);
-        assert_eq!(filler["envelopes"].as_array().unwrap().len(), 2);
+        assert_eq!(filler["metadata"]["pbs"], "11");
+        assert_eq!(filler["metadata"]["description"], "Central solenoid");
 
         let env = &value["envelope_entries"][0];
-        assert_eq!(env["zone"], "Tokamak");
-        assert_eq!(env["sector"], "1");
-        assert_eq!(env["description"], "Blanket A");
+        assert_eq!(env["metadata"]["zone"], "Tokamak");
+        assert_eq!(env["metadata"]["sector"], "1");
+        assert_eq!(env["metadata"]["description"], "Blanket A");
     }
 
     #[test]
-    fn null_envelope_omits_filler_fields() {
+    fn json_encodes_exact_id_runs() {
+        let value: serde_json::Value = serde_json::from_str(&sample_report().to_json()).unwrap();
+        let filler = &value["filler_entries"][0];
+        assert_eq!(filler["cell_id_runs"][0][0], 250000);
+        assert_eq!(filler["cell_id_runs"][0][1], 250041);
+        assert_eq!(filler["cell_id_runs"][1][0], 250100);
+        assert_eq!(filler["surface_id_runs"][0][1], 250199);
+        assert_eq!(filler["materials"][0], 110);
+        assert_eq!(filler["envelopes"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn null_envelope_omits_optional_fields() {
         let value: serde_json::Value = serde_json::from_str(&sample_report().to_json()).unwrap();
         let null_env = &value["envelope_entries"][2];
         assert_eq!(null_env["envelope_name"], "env_null");
@@ -321,6 +325,10 @@ mod tests {
             "null env must omit filler"
         );
         assert!(null_env.get("universe_id").is_none());
+        assert!(
+            null_env.get("metadata").is_none(),
+            "empty metadata must be omitted"
+        );
     }
 
     #[test]
