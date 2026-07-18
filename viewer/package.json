@@ -1,0 +1,24 @@
+{
+  "name": "gitronics-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Self-contained project-report dashboard for gitronics. Builds to a single embeddable HTML file.",
+  "scripts": {
+    "build": "vite build && node scripts/emit.mjs",
+    "dev": "vite",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "@types/d3-hierarchy": "^3.1.7",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0",
+    "vite-plugin-singlefile": "^2.0.0"
+  },
+  "dependencies": {
+    "d3-hierarchy": "^3.1.2"
+  }
+}

@@ -5,3 +5,8 @@ __pycache__/
 *.pyd
 *.pdb
 /site
+
+# Viewer (Node) build-time only: node_modules and the intermediate dist are not
+# committed; the built artifact lives at src/project_report.html (tracked).
+viewer/node_modules/
+viewer/dist/

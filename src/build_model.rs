@@ -1,13 +1,12 @@
-use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry, SCHEMA_VERSION};
+use crate::build_report;
 use crate::project_manager::ProjectManager;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
-use crate::utils::GitronicsError;
+use crate::utils::{GitronicsError, get_hash_of_project, project_dir};
 
-use git2::Repository;
 use log::{info, warn};
 use migjorn::Model;
 use regex::Regex;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::{collections::HashMap, path::Path, sync::LazyLock};
 
@@ -28,7 +27,7 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     let source = project_manager.load_source()?;
 
     // Order fillers by their first cell id for deterministic output.
-    let fillers = order_fillers_by_cell_id(unordered_fillers)?;
+    let mut fillers = order_fillers_by_cell_id(unordered_fillers)?;
 
     // Load metadata for each filler and cache it in the ProjectManager.
     project_manager.load_metadata_for_fillers(fillers.iter().map(|(name, _)| name))?;
@@ -37,7 +36,7 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 
     // Universe id of every filler (read from its first cell's `u=`).
     let universe_ids: HashMap<FillerName, UniverseId> = fillers
-        .iter()
+        .iter_mut()
         .map(|(name, model)| {
             let universe = filler_universe(model)
                 .ok_or_else(|| GitronicsError::FirstCellWithoutUniverseID(name.clone()))?;
@@ -49,14 +48,17 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     info!("Adapting envelope structure with FILL cards");
     add_fill_cards_to_envelopes(&project_manager, &universe_ids, &mut envelope_structure)?;
 
-    // Collect build-report data before the models are consumed by composition.
-    let report = collect_build_report(
+    // Emit the build report from the pre-composition models (per-filler stats
+    // and the separate cell/surface counts require the models before they are
+    // merged and their data blocks are dropped).
+    info!("Writing build report");
+    build_report::emit(build_report::ReportContext {
         config_path,
-        &project_manager,
-        &envelope_structure,
-        &fillers,
-        &universe_ids,
-    )?;
+        project_manager: &project_manager,
+        envelope_structure: &envelope_structure,
+        fillers: &mut fillers,
+        universe_ids: &universe_ids,
+    })?;
 
     // Compose: drop the ignored data blocks, then merge every filler's geometry
     // into the envelope structure (collision-checked against the disjoint-range
@@ -86,11 +88,11 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
         assembled_source.push_str(&data_text);
         assembled_source.push('\n');
     }
-    let assembled_model = Model::parse(assembled_source);
+    let mut assembled_model = Model::parse(assembled_source);
 
     // Validate the assembled model.
     info!("Performing validation checks on the assembled model");
-    let problems = assembled_model.validate();
+    let problems = assembled_model.view().validate();
     if !problems.is_empty() {
         return Err(GitronicsError::ValidationError(problems.join("\n")));
     }
@@ -102,13 +104,6 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     fs::write(&assembled_path, final_source)?;
     fs::write(output_path.join(".gitignore"), "*\n")?;
 
-    // Write the HTML build report and its machine-readable JSON manifest.
-    info!("Writing build report");
-    let report_path = project_manager.output_path().join("build_report.html");
-    fs::write(&report_path, report.generate_html())?;
-    let json_path = project_manager.output_path().join("build_report.json");
-    fs::write(&json_path, report.to_json())?;
-
     info!(
         "Build completed successfully in: {}",
         assembled_path.display()
@@ -119,18 +114,32 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 static ENVELOPE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\s*@env:\s*([[:alnum:]_.-]+)\s*").unwrap());
 
-/// The directory that contains the configuration file — the anchor for git
-/// repository discovery (the project, not the process's working directory).
-fn project_dir(config_path: &Path) -> &Path {
-    config_path.parent().unwrap_or(Path::new("."))
+/// The universe id declared by a filler's first cell (`u=`), if any.
+pub(crate) fn filler_universe(model: &mut Model) -> Option<UniverseId> {
+    let view = model.view();
+    let first = view.cells().next()?;
+    view.cell_universe(first.card_index)
+        .map(|u| UniverseId::new(u as u32))
 }
 
-/// The universe id declared by a filler's first cell (`u=`), if any.
-fn filler_universe(model: &Model) -> Option<UniverseId> {
-    let first = model.cells().next()?;
-    model
-        .cell_universe(first.card_index)
-        .map(|u| UniverseId::new(u as u32))
+/// Every envelope placeholder (`$ @env:<name>`) declared in an envelope-structure
+/// model, in source order and deduplicated. Shared with the project scan.
+pub(crate) fn envelope_names_in_structure(structure: &mut Model) -> Vec<EnvelopeName> {
+    let cell_indices: Vec<usize> = structure.view().cells().map(|c| c.card_index).collect();
+    let mut seen: HashSet<EnvelopeName> = HashSet::new();
+    let mut names: Vec<EnvelopeName> = Vec::new();
+    for card_index in cell_indices {
+        let text = structure.card_source(card_index);
+        if let Some(caps) = ENVELOPE_RE.captures(&text)
+            && let Some(m) = caps.get(1)
+        {
+            let name = EnvelopeName::new(m.as_str());
+            if seen.insert(name.clone()) {
+                names.push(name);
+            }
+        }
+    }
+    names
 }
 
 /// Order fillers by the id of their first cell, erroring on a filler with no
@@ -140,8 +149,9 @@ fn order_fillers_by_cell_id(
 ) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
     let mut keyed: Vec<(i64, FillerName, Model)> = fillers
         .into_iter()
-        .map(|(name, model)| {
+        .map(|(name, mut model)| {
             let cell_id = model
+                .view()
                 .cells()
                 .next()
                 .map(|c| c.id)
@@ -165,8 +175,13 @@ fn add_fill_cards_to_envelopes(
         project_manager.envelopes_in_config().cloned().collect();
 
     // Collect cell card indices up front: FILL insertion is a token splice that
-    // leaves indices stable, so we can read then mutate by the same index.
-    let cell_indices: Vec<usize> = envelope_structure.cells().map(|c| c.card_index).collect();
+    // leaves indices stable, so we can read then mutate by the same index. The
+    // view is dropped after collecting, freeing the model for the edits below.
+    let cell_indices: Vec<usize> = envelope_structure
+        .view()
+        .cells()
+        .map(|c| c.card_index)
+        .collect();
 
     for card_index in cell_indices {
         let original_text = envelope_structure.card_source(card_index);
@@ -230,179 +245,6 @@ fn add_fill_cards_to_envelopes(
     Ok(())
 }
 
-/// Per-model statistics derived directly from a parsed [`Model`] (reliable,
-/// independent of any metadata sidecar).
-struct ModelStats {
-    cell_count: usize,
-    surface_count: usize,
-    /// Exact cell ids used, run-length encoded as inclusive `[start, end]` runs.
-    cell_id_runs: Vec<[i64; 2]>,
-    /// Exact surface ids used, run-length encoded as inclusive `[start, end]`.
-    surface_id_runs: Vec<[i64; 2]>,
-    materials: Vec<i64>,
-}
-
-/// Coalesces a set of ids into sorted, inclusive `[start, end]` runs of
-/// consecutive values (a compact, lossless encoding of the exact id positions).
-fn runs_from_ids(mut ids: Vec<i64>) -> Vec<[i64; 2]> {
-    ids.sort_unstable();
-    ids.dedup();
-    let mut runs: Vec<[i64; 2]> = Vec::new();
-    for id in ids {
-        match runs.last_mut() {
-            Some(last) if id == last[1] + 1 => last[1] = id,
-            _ => runs.push([id, id]),
-        }
-    }
-    runs
-}
-
-/// Computes cell/surface counts, exact id runs and the distinct material set of
-/// a model in a single pass over its cells and surfaces.
-fn model_stats(model: &Model) -> ModelStats {
-    let mut cell_ids = Vec::new();
-    let mut materials: BTreeSet<i64> = BTreeSet::new();
-    for cell in model.cells() {
-        cell_ids.push(cell.id);
-        if let Some(m) = cell.material
-            && m != 0
-        {
-            materials.insert(m);
-        }
-    }
-
-    let surface_ids: Vec<i64> = model.surfaces().map(|s| s.id).collect();
-
-    ModelStats {
-        cell_count: cell_ids.len(),
-        surface_count: surface_ids.len(),
-        cell_id_runs: runs_from_ids(cell_ids),
-        surface_id_runs: runs_from_ids(surface_ids),
-        materials: materials.into_iter().collect(),
-    }
-}
-
-fn collect_build_report(
-    config_path: &Path,
-    project_manager: &ProjectManager,
-    envelope_structure: &Model,
-    fillers: &[(FillerName, Model)],
-    universe_ids: &HashMap<FillerName, UniverseId>,
-) -> Result<BuildReport, GitronicsError> {
-    let total_cells = envelope_structure.cells().count()
-        + fillers
-            .iter()
-            .map(|(_, m)| m.cells().count())
-            .sum::<usize>();
-    let total_surfaces = envelope_structure.surfaces().count()
-        + fillers
-            .iter()
-            .map(|(_, m)| m.surfaces().count())
-            .sum::<usize>();
-
-    let envelope_entries: Vec<EnvelopeEntry> = project_manager
-        .envelopes_in_config()
-        .map(|env_name| {
-            let filler_name: Option<FillerName> = project_manager
-                .filler_by_envelope(env_name)
-                .and_then(|opt| opt.clone());
-
-            let universe_id = filler_name
-                .as_ref()
-                .and_then(|f| universe_ids.get(f))
-                .copied();
-
-            let transform = filler_name.as_ref().and_then(|f| {
-                project_manager
-                    .transformation(f, env_name)
-                    .ok()
-                    .flatten()
-                    .map(str::to_string)
-            });
-
-            let meta = project_manager
-                .envelope_metadata(env_name)
-                .cloned()
-                .unwrap_or_default();
-            EnvelopeEntry {
-                envelope_name: env_name.clone(),
-                filler_name,
-                universe_id,
-                transform,
-                metadata: meta,
-            }
-        })
-        .collect();
-
-    let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
-    let mut filler_envelopes: HashMap<FillerName, Vec<EnvelopeName>> = HashMap::new();
-    for entry in &envelope_entries {
-        if let Some(filler_name) = &entry.filler_name {
-            *filler_envelope_counts
-                .entry(filler_name.clone())
-                .or_insert(0) += 1;
-            filler_envelopes
-                .entry(filler_name.clone())
-                .or_default()
-                .push(entry.envelope_name.clone());
-        }
-    }
-
-    let filler_entries: Vec<FillerEntry> = fillers
-        .iter()
-        .filter_map(|(name, model)| {
-            let universe_id = *universe_ids.get(name)?;
-            let envelope_count = *filler_envelope_counts.get(name).unwrap_or(&0);
-            let stats = model_stats(model);
-            Some(FillerEntry {
-                universe_id,
-                envelope_count,
-                cell_count: stats.cell_count,
-                surface_count: stats.surface_count,
-                cell_id_runs: stats.cell_id_runs,
-                surface_id_runs: stats.surface_id_runs,
-                materials: stats.materials,
-                envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
-                metadata: project_manager
-                    .filler_metadata(name)
-                    .cloned()
-                    .unwrap_or_default(),
-                name: name.clone(),
-            })
-        })
-        .collect();
-
-    Ok(BuildReport {
-        schema_version: SCHEMA_VERSION,
-        config_path: config_path.display().to_string(),
-        gitronics_version: env!("CARGO_PKG_VERSION"),
-        commit_hash: get_hash_of_project(project_dir(config_path)),
-        date_time: chrono::Utc::now()
-            .format("%Y-%m-%d %H:%M:%S UTC")
-            .to_string(),
-        total_cells,
-        total_surfaces,
-        envelope_entries,
-        filler_entries,
-        materials: project_manager
-            .materials_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        tallies: project_manager
-            .tallies_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        transforms: project_manager
-            .transforms_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        source: project_manager.source_name().map(|n| n.to_string()),
-    })
-}
-
 /// Render merge conflicts as a human-readable, newline-separated list.
 fn format_conflicts(conflicts: &[migjorn::MergeConflict]) -> String {
     conflicts
@@ -432,42 +274,4 @@ fn insert_banner(source: &str, config_path: &Path) -> String {
         Some((title, rest)) => format!("{title}\n{banner}\n{rest}"),
         None => format!("{source}\n{banner}\n"),
     }
-}
-
-/// Describe the git state of the repository that contains `start_dir` (the
-/// project being built), not the process's current working directory — so the
-/// recorded commit reflects what was actually assembled regardless of where the
-/// binary was invoked from.
-fn get_hash_of_project(start_dir: &Path) -> String {
-    let repo = Repository::discover(start_dir).ok();
-    repo.as_ref()
-        .and_then(|r| {
-            let mut opts = git2::DescribeOptions::new();
-            opts.describe_tags(); // Look for tags
-
-            // Configure formatting options (this adds the -dirty suffix automatically!)
-            let mut format_opts = git2::DescribeFormatOptions::new();
-            format_opts.dirty_suffix("-dirty");
-
-            // Try to describe the current state, fallback to a short hash if no tags exist
-            r.describe(&opts)
-                .and_then(|format| format.format(Some(&format_opts)))
-                .ok()
-                .or_else(|| {
-                    // Fallback: If the repo has no tags at all, just grab the short SHA
-                    let head = r.head().ok()?;
-                    let commit = head.peel_to_commit().ok()?;
-                    let short_id = commit.as_object().short_id().ok()?;
-                    let mut hash = short_id.as_str().map(|s| s.to_string()).unwrap_or_default();
-
-                    // Manually check dirty state for fallback
-                    if let Ok(statuses) = r.statuses(None)
-                        && !statuses.is_empty()
-                    {
-                        hash.push_str("-dirty");
-                    }
-                    Some(hash)
-                })
-        })
-        .unwrap_or_else(|| "GIT repository not found".to_string())
 }

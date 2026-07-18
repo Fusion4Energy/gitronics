@@ -1,9 +1,57 @@
-use gitronics::build_model;
+use gitronics::{build_model, inspect_project};
 use log::Level;
 use logtest::Logger;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
+
+#[test]
+fn test_inspect_example_project() {
+    let output_dir = tempdir().unwrap();
+    let project_dir = PathBuf::from("example_project");
+
+    let result = inspect_project(&project_dir, output_dir.path());
+    assert!(result.is_ok(), "inspect failed: {:?}", result.err());
+
+    let json = fs::read_to_string(output_dir.path().join("project_report.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    // Full filler library, including the filler that no primary config uses.
+    let fillers = v["filler_library"].as_array().unwrap();
+    assert_eq!(fillers.len(), 3, "expected the full 3-filler library");
+    let f3 = fillers
+        .iter()
+        .find(|f| f["name"] == "filler_model_3")
+        .expect("filler_model_3 present in library");
+    assert!(
+        f3["used_by_configs"].as_array().unwrap().is_empty(),
+        "filler_model_3 is unused (its envelope is not a real @env placeholder)"
+    );
+
+    // Both configurations are discovered (across configurations/ and assessment_specific/).
+    let configs = v["configurations"].as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+
+    // The envelope inventory is the two real @env placeholders in the structure.
+    assert_eq!(v["envelope_inventory"].as_array().unwrap().len(), 2);
+
+    // The primary config fills both envelopes and flags an unused filler.
+    let valid = configs
+        .iter()
+        .find(|c| c["name"] == "valid_configuration")
+        .unwrap();
+    assert_eq!(valid["stats"]["filled"], 2);
+    assert_eq!(valid["stats"]["unfilled"], 0);
+    assert!(valid["stats"]["unused_fillers"].as_u64().unwrap() >= 1);
+
+    // The HTML dashboard is written, self-contained, and carries the manifest.
+    let html = fs::read_to_string(output_dir.path().join("project_report.html")).unwrap();
+    assert!(
+        !html.contains("__GITRONICS_REPORT_DATA__"),
+        "manifest placeholder must be replaced"
+    );
+    assert!(html.contains("filler_model_3"), "manifest embedded in HTML");
+}
 
 fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
     for entry in fs::read_dir(src)? {

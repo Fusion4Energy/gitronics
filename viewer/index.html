@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gitronics — Project Report</title>
+    <script>
+      // Set the theme before first paint to avoid a flash of the wrong theme.
+      try {
+        var t =
+          localStorage.getItem("gitronics-theme") ||
+          (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light");
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <!-- The Rust `inspect` command replaces the token below with the escaped
+         project manifest JSON at write time. In `vite dev` the token stays and
+         the app falls back to the bundled mock manifest. -->
+    <script type="application/json" id="report-data">__GITRONICS_REPORT_DATA__</script>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

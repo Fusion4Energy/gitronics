@@ -11,9 +11,13 @@
 
 use serde::Serialize;
 
-use crate::project_manager::Metadata;
+use crate::project_manager::{Metadata, ProjectManager};
 use crate::types::{EnvelopeName, FillerName, UniverseId};
+use crate::utils::{GitronicsError, get_hash_of_project, project_dir};
 use indexmap::IndexMap;
+use migjorn::Model;
+use std::collections::{BTreeSet, HashMap};
+use std::path::Path;
 
 /// Schema version of the emitted manifest. Bump on breaking changes so the
 /// viewer (and downstream tooling) can adapt.
@@ -121,6 +125,219 @@ impl BuildReport {
         out.push_str("\n  </script>\n</body>\n</html>\n");
         out
     }
+
+    /// Writes the HTML report and its machine-readable JSON manifest into
+    /// `output_path` (`build_report.html` / `build_report.json`).
+    pub fn write(&self, output_path: &Path) -> Result<(), GitronicsError> {
+        std::fs::write(output_path.join("build_report.html"), self.generate_html())?;
+        std::fs::write(output_path.join("build_report.json"), self.to_json())?;
+        Ok(())
+    }
+}
+
+// ─── Collection ───────────────────────────────────────────────────────────────
+//
+// Turning the assembled pieces into a report is the reporting module's job, not
+// the build pipeline's. `build_model` gathers the inputs into a [`ReportContext`]
+// and calls [`emit`]; everything below stays private to this module.
+
+/// The assembled inputs a report is built from, handed over by the build
+/// pipeline. Borrows the models mutably only because reading typed cells/surfaces
+/// goes through a `migjorn` view.
+pub struct ReportContext<'a> {
+    pub config_path: &'a Path,
+    pub project_manager: &'a ProjectManager,
+    pub envelope_structure: &'a Model,
+    pub fillers: &'a mut [(FillerName, Model)],
+    pub universe_ids: &'a HashMap<FillerName, UniverseId>,
+}
+
+/// Collects the report from the assembled pieces and writes both artefacts into
+/// the project's output directory. The single entry point the build pipeline
+/// calls — it owns collect → render → write.
+pub fn emit(ctx: ReportContext) -> Result<(), GitronicsError> {
+    let output_path = ctx.project_manager.output_path().clone();
+    let report = collect(ctx)?;
+    report.write(&output_path)
+}
+
+/// Assembles a [`BuildReport`] from the build inputs.
+fn collect(ctx: ReportContext) -> Result<BuildReport, GitronicsError> {
+    let ReportContext {
+        config_path,
+        project_manager,
+        envelope_structure,
+        fillers,
+        universe_ids,
+    } = ctx;
+
+    // Cell/surface counts come from the `*_slots` accessors (one slot per card),
+    // which read without a `&mut` view.
+    let total_cells = envelope_structure.cell_slots().len()
+        + fillers
+            .iter()
+            .map(|(_, m)| m.cell_slots().len())
+            .sum::<usize>();
+    let total_surfaces = envelope_structure.surface_slots().len()
+        + fillers
+            .iter()
+            .map(|(_, m)| m.surface_slots().len())
+            .sum::<usize>();
+
+    let envelope_entries: Vec<EnvelopeEntry> = project_manager
+        .envelopes_in_config()
+        .map(|env_name| {
+            let filler_name: Option<FillerName> = project_manager
+                .filler_by_envelope(env_name)
+                .and_then(|opt| opt.clone());
+
+            let universe_id = filler_name
+                .as_ref()
+                .and_then(|f| universe_ids.get(f))
+                .copied();
+
+            let transform = filler_name.as_ref().and_then(|f| {
+                project_manager
+                    .transformation(f, env_name)
+                    .ok()
+                    .flatten()
+                    .map(str::to_string)
+            });
+
+            let meta = project_manager
+                .envelope_metadata(env_name)
+                .cloned()
+                .unwrap_or_default();
+            EnvelopeEntry {
+                envelope_name: env_name.clone(),
+                filler_name,
+                universe_id,
+                transform,
+                metadata: meta,
+            }
+        })
+        .collect();
+
+    let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
+    let mut filler_envelopes: HashMap<FillerName, Vec<EnvelopeName>> = HashMap::new();
+    for entry in &envelope_entries {
+        if let Some(filler_name) = &entry.filler_name {
+            *filler_envelope_counts
+                .entry(filler_name.clone())
+                .or_insert(0) += 1;
+            filler_envelopes
+                .entry(filler_name.clone())
+                .or_default()
+                .push(entry.envelope_name.clone());
+        }
+    }
+
+    let filler_entries: Vec<FillerEntry> = fillers
+        .iter_mut()
+        .filter_map(|(name, model)| {
+            let universe_id = *universe_ids.get(name)?;
+            let envelope_count = *filler_envelope_counts.get(name).unwrap_or(&0);
+            let stats = model_stats(model);
+            Some(FillerEntry {
+                universe_id,
+                envelope_count,
+                cell_count: stats.cell_count,
+                surface_count: stats.surface_count,
+                cell_id_runs: stats.cell_id_runs,
+                surface_id_runs: stats.surface_id_runs,
+                materials: stats.materials,
+                envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
+                metadata: project_manager
+                    .filler_metadata(name)
+                    .cloned()
+                    .unwrap_or_default(),
+                name: name.clone(),
+            })
+        })
+        .collect();
+
+    Ok(BuildReport {
+        schema_version: SCHEMA_VERSION,
+        config_path: config_path.display().to_string(),
+        gitronics_version: env!("CARGO_PKG_VERSION"),
+        commit_hash: get_hash_of_project(project_dir(config_path)),
+        date_time: chrono::Utc::now()
+            .format("%Y-%m-%d %H:%M:%S UTC")
+            .to_string(),
+        total_cells,
+        total_surfaces,
+        envelope_entries,
+        filler_entries,
+        materials: project_manager
+            .materials_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
+        tallies: project_manager
+            .tallies_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
+        transforms: project_manager
+            .transforms_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect(),
+        source: project_manager.source_name().map(|n| n.to_string()),
+    })
+}
+
+/// Per-model statistics derived directly from a parsed [`Model`] (reliable,
+/// independent of any metadata sidecar). Shared with the project report.
+pub(crate) struct ModelStats {
+    pub(crate) cell_count: usize,
+    pub(crate) surface_count: usize,
+    /// Exact cell ids used, run-length encoded as inclusive `[start, end]` runs.
+    pub(crate) cell_id_runs: Vec<[i64; 2]>,
+    /// Exact surface ids used, run-length encoded as inclusive `[start, end]`.
+    pub(crate) surface_id_runs: Vec<[i64; 2]>,
+    pub(crate) materials: Vec<i64>,
+}
+
+/// Coalesces a set of ids into sorted, inclusive `[start, end]` runs of
+/// consecutive values (a compact, lossless encoding of the exact id positions).
+fn runs_from_ids(mut ids: Vec<i64>) -> Vec<[i64; 2]> {
+    ids.sort_unstable();
+    ids.dedup();
+    let mut runs: Vec<[i64; 2]> = Vec::new();
+    for id in ids {
+        match runs.last_mut() {
+            Some(last) if id == last[1] + 1 => last[1] = id,
+            _ => runs.push([id, id]),
+        }
+    }
+    runs
+}
+
+/// Computes cell/surface counts, exact id runs and the distinct material set of
+/// a model in a single pass over its cells and surfaces.
+pub(crate) fn model_stats(model: &mut Model) -> ModelStats {
+    let view = model.view();
+    let mut cell_ids = Vec::new();
+    let mut materials: BTreeSet<i64> = BTreeSet::new();
+    for cell in view.cells() {
+        cell_ids.push(cell.id);
+        if let Some(m) = cell.material
+            && m != 0
+        {
+            materials.insert(m);
+        }
+    }
+
+    let surface_ids: Vec<i64> = view.surfaces().map(|s| s.id).collect();
+
+    ModelStats {
+        cell_count: cell_ids.len(),
+        surface_count: surface_ids.len(),
+        cell_id_runs: runs_from_ids(cell_ids),
+        surface_id_runs: runs_from_ids(surface_ids),
+        materials: materials.into_iter().collect(),
+    }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -129,7 +346,7 @@ impl BuildReport {
 /// element. Escaping `<`, `>` and `&` as `\uXXXX` keeps the payload valid JSON
 /// while preventing any `</script>` breakout (an HTML-injection vector).
 /// Also escapes the JS line separators U+2028/U+2029.
-fn escape_json_for_script(json: &str) -> String {
+pub(crate) fn escape_json_for_script(json: &str) -> String {
     let mut out = String::with_capacity(json.len() + 16);
     for ch in json.chars() {
         match ch {
@@ -264,6 +481,23 @@ mod tests {
             html.contains("project/config.yaml"),
             "config path missing from title"
         );
+    }
+
+    #[test]
+    fn write_emits_both_report_files() {
+        let dir = tempfile::tempdir().unwrap();
+        sample_report().write(dir.path()).expect("write report");
+
+        let html_path = dir.path().join("build_report.html");
+        let json_path = dir.path().join("build_report.json");
+        assert!(html_path.exists(), "build_report.html not written");
+        assert!(json_path.exists(), "build_report.json not written");
+
+        // The JSON is a valid manifest and the HTML is a full document.
+        let json = std::fs::read_to_string(&json_path).unwrap();
+        serde_json::from_str::<serde_json::Value>(&json).expect("valid JSON manifest");
+        let html = std::fs::read_to_string(&html_path).unwrap();
+        assert!(html.starts_with("<!DOCTYPE html>"), "HTML not a document");
     }
 
     // ── JSON manifest ─────────────────────────────────────────────────────────

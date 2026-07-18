@@ -22,6 +22,18 @@ impl ProjectManager {
         Ok(())
     }
 
+    /// Best-effort metadata load for the given fillers: a filler whose `.metadata`
+    /// is missing or unparseable is simply skipped (no transforms, no metadata),
+    /// so `inspect` never fails on an incomplete or non-filler library file.
+    pub fn load_metadata_for_fillers_best_effort<'a>(
+        &mut self,
+        filler_names: impl IntoIterator<Item = &'a FillerName>,
+    ) {
+        for filler_name in filler_names {
+            let _ = self.load_metadata(filler_name);
+        }
+    }
+
     fn load_metadata(&mut self, filler_name: &FillerName) -> Result<(), GitronicsError> {
         let metadata_path = self
             .file_path(&filler_name.into())?

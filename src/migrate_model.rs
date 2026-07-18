@@ -7,7 +7,6 @@ use crate::{
 use indexmap::IndexMap;
 use log::info;
 use migjorn::Model;
-use rayon::prelude::*;
 use std::{
     fs::{self, File, create_dir_all},
     io::Write,
@@ -17,7 +16,7 @@ use std::{
 pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), GitronicsError> {
     info!("Reading MCNP model from file: {}", mcnp_input.display());
     let file_name = FileName::new(mcnp_input.display().to_string());
-    let model = parse_model_file(mcnp_input, &file_name)?;
+    let mut model = parse_model_file(mcnp_input, &file_name)?;
 
     // Create the output directory tree.
     create_dir_all(output_path.join("reference_model/filler_models"))?;
@@ -25,19 +24,19 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
     create_dir_all(output_path.join("output"))?;
     fs::write(output_path.join("output/.gitignore"), "*\n")?;
 
-    // Extract every universe into its own filler model file.
+    // Extract every universe into its own filler model file. `extract_universe`
+    // now takes `&mut self`, so the extraction runs sequentially (the source
+    // model stays pristine across extractions — the only mutation is an
+    // idempotent materialize, a no-op for a freshly parsed model).
     info!("Extracting universes");
-    model
-        .universe_ids()
-        .par_iter()
-        .try_for_each(|&universe_id| {
-            let extracted = model.extract_universe(universe_id);
-            let universe_path = output_path.join(format!(
-                "reference_model/filler_models/universe_{universe_id}.mcnp"
-            ));
-            fs::write(&universe_path, extracted.to_source())
-                .map_err(|source| GitronicsError::io_path(&universe_path, source))
-        })?;
+    for universe_id in model.view().universe_ids() {
+        let extracted = model.extract_universe(universe_id);
+        let universe_path = output_path.join(format!(
+            "reference_model/filler_models/universe_{universe_id}.mcnp"
+        ));
+        fs::write(&universe_path, extracted.to_source())
+            .map_err(|source| GitronicsError::io_path(&universe_path, source))?;
+    }
 
     // Extract the level-0 shell and turn its FILL cards into `@env` placeholders.
     info!("Extracting envelope structure");
@@ -58,8 +57,11 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
     let data_cards_file = output_path.join("reference_model/data_cards.source");
     let mut writer = File::create(&data_cards_file)?;
     writer.write_all(b"All the data cards of the original model\n")?;
-    for card in model.data_cards() {
-        writeln!(writer, "{}", model.card_source(card.card_index).trim_end())?;
+    // Snapshot the data-card indices first: the view borrows the model, so it
+    // must be dropped before reading each card's source text.
+    let data_card_indices: Vec<usize> = model.view().data_cards().map(|c| c.card_index).collect();
+    for card_index in data_card_indices {
+        writeln!(writer, "{}", model.card_source(card_index).trim_end())?;
     }
 
     // Assemble the migrated project to validate the migration round-trips.
@@ -130,15 +132,17 @@ fn replace_fills_with_placeholders(
     let mut fillers_metadata: IndexMap<FillerName, FillerMetadata> = IndexMap::new();
 
     // Snapshot the cells and their fills first; edits (parameter removal + comment
-    // insertion) are token splices that keep card indices stable.
-    let placements: Vec<(usize, i64, migjorn::Fill)> = envelope_structure
-        .cells()
-        .filter_map(|cell| {
-            envelope_structure
-                .cell_fill(cell.card_index)
-                .map(|fill| (cell.card_index, cell.id, fill))
-        })
-        .collect();
+    // insertion) are token splices that keep card indices stable. The view is
+    // scoped so it is dropped before the mutating edits below.
+    let placements: Vec<(usize, i64, migjorn::Fill)> = {
+        let view = envelope_structure.view();
+        view.cells()
+            .filter_map(|cell| {
+                view.cell_fill(cell.card_index)
+                    .map(|fill| (cell.card_index, cell.id, fill))
+            })
+            .collect()
+    };
 
     for (card_index, cell_id, fill) in placements {
         let filler_name = FillerName::new(format!("universe_{}", fill.universe));

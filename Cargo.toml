@@ -19,7 +19,7 @@ pyo3 = { version = "0.23", features = [
     "abi3-py39",
     "generate-import-lib",
 ] }
-migjorn = { version = "0.2.2" }
+migjorn = { version = "0.2.4" }
 walkdir = "2.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-saphyr = "0.0.26"
@@ -39,3 +39,4 @@ path-clean = "1.0.1"
 [dev-dependencies]
 tempfile = "3.0"
 logtest = "2.0"
+serde_json = "1.0"

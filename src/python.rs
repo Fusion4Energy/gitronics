@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 
 use crate::build_model::build_model;
 use crate::init_logger;
+use crate::inspect::inspect_project;
 use crate::migrate_model::migrate_model;
 use crate::run_cli;
 
@@ -37,10 +38,22 @@ fn py_migrate_model(mcnp_input: PathBuf, output_path: PathBuf) -> PyResult<()> {
     migrate_model(&mcnp_input, &output_path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
+/// Inspect a whole gitronics project and write an interactive project report.
+///
+/// Args:
+///     project_dir: Path to the project directory (containing `configurations/`).
+///     output_path: Directory where `project_report.{json,html}` will be written.
+#[pyfunction]
+fn py_inspect_project(project_dir: PathBuf, output_path: PathBuf) -> PyResult<()> {
+    init_logger();
+    inspect_project(&project_dir, &output_path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
 /// Python extension module.
 #[pymodule]
 fn gitronics(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run, m)?)?;
     m.add_function(wrap_pyfunction!(py_build_model, m)?)?;
-    m.add_function(wrap_pyfunction!(py_migrate_model, m)?)
+    m.add_function(wrap_pyfunction!(py_migrate_model, m)?)?;
+    m.add_function(wrap_pyfunction!(py_inspect_project, m)?)
 }

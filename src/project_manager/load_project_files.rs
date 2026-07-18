@@ -59,6 +59,30 @@ impl ProjectManager {
             .collect::<Result<Vec<_>, GitronicsError>>()
     }
 
+    /// Loads and parses the whole filler *library* — every `.mcnp` file under the
+    /// project roots except the envelope structure — paired with its name, in
+    /// parallel. Unlike [`load_fillers`](Self::load_fillers) this is independent of
+    /// any configuration, so it includes fillers no configuration currently uses.
+    pub fn load_library_fillers(&self) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
+        let filler_names = self.library_filler_names();
+        let name_and_paths = filler_names
+            .iter()
+            .map(|filler_name| {
+                let path = self.file_path(&filler_name.into())?;
+                Ok((filler_name.clone(), path.clone()))
+            })
+            .collect::<Result<Vec<_>, GitronicsError>>()?;
+
+        name_and_paths
+            .into_par_iter()
+            .map(|(filler_name, path)| {
+                let file_name = FileName::from(&filler_name);
+                let model = parse_model_file(&path, &file_name)?;
+                Ok((filler_name, model))
+            })
+            .collect()
+    }
+
     /// Loads the transformation data-card text from the configured files.
     pub fn load_transforms(&self) -> Result<String, GitronicsError> {
         self.load_data_cards_text(self.model_config.transformations())

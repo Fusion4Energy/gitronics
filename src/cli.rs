@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::{GitronicsError, build_model, init_logger, migrate_model};
+use crate::{GitronicsError, build_model, init_logger, inspect_project, migrate_model};
 
 #[derive(Parser)]
 #[command(
@@ -53,6 +53,21 @@ enum Commands {
         #[arg(short, long, default_value = "./project")]
         output_path: PathBuf,
     },
+
+    /// Inspect a whole project and write an interactive project report.
+    ///
+    /// Scans every configuration, the full filler library (including unused
+    /// fillers) and the full envelope inventory, then writes `project_report.json`
+    /// and a self-contained `project_report.html` composition dashboard.
+    Inspect {
+        /// Path to the project directory (containing `configurations/`)
+        #[arg(default_value = ".")]
+        project_dir: PathBuf,
+
+        /// Path to the output directory
+        #[arg(short, long, default_value = ".")]
+        output_path: PathBuf,
+    },
 }
 
 /// Parse `args` with the clap CLI and run the requested command.
@@ -71,5 +86,9 @@ pub fn run_cli(args: impl IntoIterator<Item = String>) -> Result<(), GitronicsEr
             mcnp_input,
             output_path,
         } => migrate_model(&mcnp_input, &output_path),
+        Commands::Inspect {
+            project_dir,
+            output_path,
+        } => inspect_project(&project_dir, &output_path),
     }
 }

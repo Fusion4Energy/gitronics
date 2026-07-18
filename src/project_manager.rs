@@ -1,5 +1,5 @@
 use crate::model_config::ModelConfig;
-use crate::project_manager::load_model_config::load_config;
+pub(crate) use crate::project_manager::load_model_config::load_config;
 use crate::types::{EnvelopeName, FileName, FillerName};
 use crate::utils::{GitronicsError, get_file_paths};
 use indexmap::IndexMap;
@@ -133,6 +133,24 @@ impl ProjectManager {
     /// Returns the arbitrary, project-defined metadata of an envelope, if loaded.
     pub fn envelope_metadata(&self, envelope_name: &EnvelopeName) -> Option<&Metadata> {
         self.envelope_metadata.get(envelope_name)
+    }
+
+    /// Names of every `.mcnp` file discovered under the project roots except the
+    /// configured envelope structure — the full filler *library* (a superset of
+    /// the fillers any single configuration references, including unused ones).
+    pub fn library_filler_names(&self) -> Vec<FillerName> {
+        let structure = self.model_config.envelope_structure();
+        let mut names: Vec<FillerName> = self
+            .file_paths
+            .iter()
+            .filter(|(name, path)| {
+                path.extension().and_then(|e| e.to_str()) == Some("mcnp")
+                    && structure != Some(*name)
+            })
+            .map(|(name, _)| FillerName::from(name))
+            .collect();
+        names.sort();
+        names
     }
 }
 

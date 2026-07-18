@@ -6,6 +6,7 @@
 //! - Logger initialization
 
 use crate::types::{EnvelopeName, FileName, FillerName};
+use git2::Repository;
 use log::LevelFilter;
 use migjorn::{Model, Severity};
 use path_clean::PathClean;
@@ -58,6 +59,11 @@ pub enum GitronicsError {
 
     #[error("No `envelope_structure` key found in model configuration")]
     MissingEnvelopeStructureInConfig,
+
+    #[error(
+        "No configurations found under `{0}`. Expected at least one YAML configuration file (e.g. in a `configurations/` directory)."
+    )]
+    NoConfigurationsFound(String),
 
     #[error("No cell ID found in first cell of filler model `{0}`")]
     NoCellID(FillerName),
@@ -276,6 +282,50 @@ pub fn init_logger() {
         )
     });
     logger.try_init().ok();
+}
+
+/// The directory that contains the configuration file — the anchor for git
+/// repository discovery (the project, not the process's working directory).
+pub fn project_dir(config_path: &Path) -> &Path {
+    config_path.parent().unwrap_or(Path::new("."))
+}
+
+/// Describe the git state of the repository that contains `start_dir` (the
+/// project being built), not the process's current working directory — so the
+/// recorded commit reflects what was actually assembled regardless of where the
+/// binary was invoked from.
+pub fn get_hash_of_project(start_dir: &Path) -> String {
+    let repo = Repository::discover(start_dir).ok();
+    repo.as_ref()
+        .and_then(|r| {
+            let mut opts = git2::DescribeOptions::new();
+            opts.describe_tags(); // Look for tags
+
+            // Configure formatting options (this adds the -dirty suffix automatically!)
+            let mut format_opts = git2::DescribeFormatOptions::new();
+            format_opts.dirty_suffix("-dirty");
+
+            // Try to describe the current state, fallback to a short hash if no tags exist
+            r.describe(&opts)
+                .and_then(|format| format.format(Some(&format_opts)))
+                .ok()
+                .or_else(|| {
+                    // Fallback: If the repo has no tags at all, just grab the short SHA
+                    let head = r.head().ok()?;
+                    let commit = head.peel_to_commit().ok()?;
+                    let short_id = commit.as_object().short_id().ok()?;
+                    let mut hash = short_id.as_str().map(|s| s.to_string()).unwrap_or_default();
+
+                    // Manually check dirty state for fallback
+                    if let Ok(statuses) = r.statuses(None)
+                        && !statuses.is_empty()
+                    {
+                        hash.push_str("-dirty");
+                    }
+                    Some(hash)
+                })
+        })
+        .unwrap_or_else(|| "GIT repository not found".to_string())
 }
 
 #[cfg(test)]

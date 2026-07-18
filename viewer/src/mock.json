@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "gitronics_version": "0.1.0",
+  "commit_hash": "v0.6.3-dirty",
+  "date_time": "2026-07-18 12:00:00 UTC",
+  "project_dir": "example_project",
+  "filler_library": [
+    {
+      "name": "filler_model_1",
+      "universe_id": 121,
+      "cell_count": 3,
+      "surface_count": 5,
+      "materials": [110, 907],
+      "cell_id_runs": [[250000, 250002]],
+      "surface_id_runs": [[250000, 250004]],
+      "description": "Inboard blanket module",
+      "metadata": { "component_type": "blanket", "status": "frozen", "owner": "alice" },
+      "used_by_configs": ["valid_configuration"]
+    },
+    {
+      "name": "filler_model_2",
+      "universe_id": 122,
+      "cell_count": 2,
+      "surface_count": 3,
+      "materials": [110],
+      "cell_id_runs": [[260000, 260001]],
+      "surface_id_runs": [[260000, 260002]],
+      "description": "Outboard blanket module",
+      "metadata": { "component_type": "blanket", "status": "review", "owner": "bob" },
+      "used_by_configs": ["valid_configuration"]
+    },
+    {
+      "name": "filler_model_3",
+      "universe_id": 123,
+      "cell_count": 6,
+      "surface_count": 8,
+      "materials": [200, 907],
+      "cell_id_runs": [[270000, 270005]],
+      "surface_id_runs": [[270000, 270007]],
+      "description": "Divertor cassette (assessment variant)",
+      "metadata": { "component_type": "divertor", "status": "draft", "owner": "alice" },
+      "used_by_configs": ["small_override"]
+    }
+  ],
+  "envelope_inventory": [
+    { "envelope_name": "my_envelope_name_1", "description": "Sector 1 inboard", "metadata": { "sector": "1", "system": "blanket" } },
+    { "envelope_name": "envelope_name_2", "description": "Sector 1 outboard", "metadata": { "sector": "1", "system": "blanket" } },
+    { "envelope_name": "my_envelope_name_2", "description": "Sector 2 divertor", "metadata": { "sector": "2", "system": "divertor" } }
+  ],
+  "configurations": [
+    {
+      "name": "valid_configuration",
+      "path": "configurations/valid_configuration.yaml",
+      "envelopes": [
+        { "envelope_name": "my_envelope_name_1", "filler_name": "filler_model_1", "universe_id": 121, "transform": "*(10)" },
+        { "envelope_name": "envelope_name_2", "filler_name": "filler_model_2", "universe_id": 122 },
+        { "envelope_name": "my_envelope_name_2" }
+      ],
+      "stats": { "filled": 2, "unfilled": 1, "distinct_fillers": 2, "unused_fillers": 1 }
+    },
+    {
+      "name": "small_override",
+      "path": "assessment_specific/small_override.yaml",
+      "overrides": "configurations/valid_configuration.yaml",
+      "envelopes": [
+        { "envelope_name": "my_envelope_name_1" },
+        { "envelope_name": "envelope_name_2", "filler_name": "filler_model_2", "universe_id": 122 },
+        { "envelope_name": "my_envelope_name_2", "filler_name": "filler_model_3", "universe_id": 123 }
+      ],
+      "stats": { "filled": 2, "unfilled": 1, "distinct_fillers": 2, "unused_fillers": 1 }
+    }
+  ],
+  "metadata_keys": {
+    "filler": ["component_type", "status", "owner"],
+    "envelope": ["sector", "system"]
+  }
+}
