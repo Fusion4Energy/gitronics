@@ -7,6 +7,7 @@ use crate::{
 use indexmap::IndexMap;
 use log::info;
 use migjorn::Model;
+use rayon::prelude::*;
 use std::{
     fs::{self, File, create_dir_all},
     io::Write,
@@ -24,18 +25,24 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
     create_dir_all(output_path.join("output"))?;
     fs::write(output_path.join("output/.gitignore"), "*\n")?;
 
-    // Extract every universe into its own filler model file. `extract_universe`
-    // now takes `&mut self`, so the extraction runs sequentially (the source
-    // model stays pristine across extractions — the only mutation is an
-    // idempotent materialize, a no-op for a freshly parsed model).
+    // Extract every universe into its own filler model file, in parallel.
+    // `ModelView::extract_universe` is `&self` (a view only ever exists over an
+    // already-materialized tree), so it composes across threads unlike
+    // `Model::extract_universe`, which needs `&mut self` just to trigger its own
+    // (here idempotent, no-op) materialize.
     info!("Extracting universes");
-    for universe_id in model.view().universe_ids() {
-        let extracted = model.extract_universe(universe_id);
-        let universe_path = output_path.join(format!(
-            "reference_model/filler_models/universe_{universe_id}.mcnp"
-        ));
-        fs::write(&universe_path, extracted.to_source())
-            .map_err(|source| GitronicsError::io_path(&universe_path, source))?;
+    {
+        let view = model.view();
+        view.universe_ids()
+            .into_par_iter()
+            .try_for_each(|universe_id| {
+                let extracted = view.extract_universe(universe_id);
+                let universe_path = output_path.join(format!(
+                    "reference_model/filler_models/universe_{universe_id}.mcnp"
+                ));
+                fs::write(&universe_path, extracted.to_source())
+                    .map_err(|source| GitronicsError::io_path(&universe_path, source))
+            })?;
     }
 
     // Extract the level-0 shell and turn its FILL cards into `@env` placeholders.
