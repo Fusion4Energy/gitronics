@@ -87,5 +87,6 @@ nav:
   - Usage:
       - Build: usage/build.md
       - Migrate: usage/migrate.md
+      - Inspect: usage/inspect.md
   - Best Practices: best_practices.md
   - Examples: examples.md

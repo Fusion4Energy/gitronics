@@ -58,6 +58,37 @@ jobs:
             - name: Clippy
               run: cargo clippy --workspace -- -D warnings
 
+    viewer:
+        name: Viewer (single-file build)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+                  cache-dependency-path: viewer/package-lock.json
+
+            - name: Install dependencies
+              working-directory: viewer
+              run: npm ci
+
+            - name: Type-check
+              working-directory: viewer
+              run: npm run check
+
+            - name: Build the single-file viewer
+              working-directory: viewer
+              run: npm run build
+
+            # The viewer is committed as src/project_report.html so the Rust build
+            # stays Node-free. Fail if a rebuild changes it — i.e. a contributor
+            # edited viewer/ without committing the regenerated artifact.
+            - name: Verify committed artifact is up to date
+              run: git diff --exit-code -- src/project_report.html
+
     ruff:
         name: Python lint (ruff)
         runs-on: ubuntu-latest

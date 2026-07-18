@@ -11,10 +11,11 @@ from __future__ import annotations
 import sys
 
 from .gitronics import py_build_model as build_model  # type: ignore[import]
+from .gitronics import py_inspect_project as inspect_project  # type: ignore[import]
 from .gitronics import py_migrate_model as migrate_model  # type: ignore[import]
 from .gitronics import run  # type: ignore[import]
 
-__all__ = ["build_model", "migrate_model", "run"]
+__all__ = ["build_model", "inspect_project", "migrate_model", "run"]
 
 
 def _cli_main() -> None:

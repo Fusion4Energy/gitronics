@@ -25,4 +25,5 @@ Once you have read the guide, you can learn how to install Gitronics, learn abou
 - [Best Practices](best_practices.md) — recommended practices for managing your Gitronics project.
 - [Usage/Migrate](usage/migrate.md) — API for the `migrate` command.
 - [Usage/Build](usage/build.md) — API for the `build` command.
+- [Usage/Inspect](usage/inspect.md) — API for the `inspect` command, which builds an interactive report of the whole project.
 - [Examples](examples.md) — example Gitronics projects to get you started.

@@ -59,3 +59,28 @@ def py_migrate_model(mcnp_input: Path | str, output_path: Path | str) -> None:
         RuntimeError: If any step of the migration fails.
     """
     ...
+
+def py_inspect_project(project_dir: Path | str, output_path: Path | str) -> None:
+    """Inspect a whole gitronics project and write an interactive report.
+
+    Scans every configuration in *project_dir*, the full filler library
+    (including unused fillers) and the full envelope inventory (including
+    unassigned envelopes), then writes ``project_report.json`` and a
+    self-contained ``project_report.html`` composition dashboard.
+
+    Args:
+        project_dir: Path to the project directory (containing
+            ``configurations/``).
+        output_path: Directory where ``project_report.json`` and
+            ``project_report.html`` will be written.
+
+    Raises:
+        RuntimeError: If no configuration is found or a scan step fails.
+
+    Example::
+
+        import gitronics
+
+        gitronics.inspect_project(".", "output/")
+    """
+    ...
