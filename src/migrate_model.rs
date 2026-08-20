@@ -59,7 +59,7 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
     let mut writer = File::create(&data_cards_file)?;
     writer.write_all(b"All the data cards of the original model\n")?;
     for card in model.data_cards() {
-        writeln!(writer, "{}", model.card_source(card.card_index).trim_end())?;
+        writeln!(writer, "{}", card.text().trim_end())?;
     }
 
     // Assemble the migrated project to validate the migration round-trips.
@@ -130,17 +130,16 @@ fn replace_fills_with_placeholders(
     let mut fillers_metadata: IndexMap<FillerName, FillerMetadata> = IndexMap::new();
 
     // Snapshot the cells and their fills first; edits (parameter removal + comment
-    // insertion) are token splices that keep card indices stable.
-    let placements: Vec<(usize, i64, migjorn::Fill)> = envelope_structure
+    // insertion) are token splices that keep slots stable.
+    let placements: Vec<(u32, i64, migjorn::Fill)> = envelope_structure
         .cells()
         .filter_map(|cell| {
-            envelope_structure
-                .cell_fill(cell.card_index)
-                .map(|fill| (cell.card_index, cell.id, fill))
+            let fill = cell.fill()?;
+            Some((cell.slot(), cell.id().unwrap_or_default(), fill))
         })
         .collect();
 
-    for (card_index, cell_id, fill) in placements {
+    for (slot, cell_id, fill) in placements {
         let filler_name = FillerName::new(format!("universe_{}", fill.universe));
         let envelope_name = EnvelopeName::new(format!("envelope_{cell_id}"));
         let transform = fill.transform.map(|inner| {
@@ -162,12 +161,12 @@ fn replace_fills_with_placeholders(
             .insert(envelope_name, transform);
 
         envelope_structure
-            .remove_cell_param(card_index, "fill")
+            .remove_cell_param(slot, "fill")
             .map_err(|e| {
                 GitronicsError::ValidationError(format!("Could not remove FILL card: {e}"))
             })?;
         envelope_structure
-            .append_inline_comment(card_index, &format!("@env:envelope_{cell_id}"))
+            .append_cell_comment(slot, &format!("@env:envelope_{cell_id}"))
             .map_err(|e| {
                 GitronicsError::ValidationError(format!("Could not add envelope placeholder: {e}"))
             })?;

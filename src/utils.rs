@@ -116,7 +116,7 @@ impl GitronicsError {
 /// the parser reports any error-severity diagnostic (warnings are tolerated).
 pub fn parse_model_file(path: &Path, file_name: &FileName) -> Result<Model, GitronicsError> {
     let text = fs::read_to_string(path).map_err(|source| GitronicsError::io_path(path, source))?;
-    let model = Model::parse(text);
+    let model = Model::parse(&text);
     if let Some(diag) = model
         .diagnostics()
         .iter()

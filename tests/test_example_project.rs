@@ -283,7 +283,7 @@ fn test_id_collision_between_fillers_is_reported() {
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("ID collisions") && msg.contains("cell 100"),
+        msg.contains("ID collisions") && msg.contains("duplicate cell id 100"),
         "expected a cell-100 collision error, got: {msg}"
     );
 }

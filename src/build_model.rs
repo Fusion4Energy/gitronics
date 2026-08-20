@@ -62,15 +62,14 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     // into the envelope structure (collision-checked against the disjoint-range
     // convention).
     info!("Composing model");
-    envelope_structure.clear_data_cards();
-    let mut filler_models = fillers;
-    for (_, model) in filler_models.iter_mut() {
-        model.clear_data_cards();
-    }
-    let filler_refs: Vec<&Model> = filler_models.iter().map(|(_, model)| model).collect();
+    envelope_structure = envelope_structure.clear_data_cards();
+    let filler_models: Vec<Model> = fillers
+        .iter()
+        .map(|(_, model)| model.clear_data_cards())
+        .collect();
     envelope_structure
-        .merge(&filler_refs)
-        .map_err(|conflicts| GitronicsError::MergeConflicts(format_conflicts(&conflicts)))?;
+        .merge(filler_models)
+        .map_err(|conflicts| GitronicsError::MergeConflicts(conflicts.join("\n")))?;
 
     // Append the configured data cards to the data block.
     let data_text = [transforms, materials, tallies, source]
@@ -86,7 +85,7 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
         assembled_source.push_str(&data_text);
         assembled_source.push('\n');
     }
-    let assembled_model = Model::parse(assembled_source);
+    let assembled_model = Model::parse(&assembled_source);
 
     // Validate the assembled model.
     info!("Performing validation checks on the assembled model");
@@ -127,9 +126,10 @@ fn project_dir(config_path: &Path) -> &Path {
 
 /// The universe id declared by a filler's first cell (`u=`), if any.
 fn filler_universe(model: &Model) -> Option<UniverseId> {
-    let first = model.cells().next()?;
     model
-        .cell_universe(first.card_index)
+        .cells()
+        .next()?
+        .universe()
         .map(|u| UniverseId::new(u as u32))
 }
 
@@ -144,7 +144,7 @@ fn order_fillers_by_cell_id(
             let cell_id = model
                 .cells()
                 .next()
-                .map(|c| c.id)
+                .and_then(|c| c.id())
                 .ok_or_else(|| GitronicsError::NoCellID(name.clone()))?;
             Ok((cell_id, name, model))
         })
@@ -164,12 +164,15 @@ fn add_fill_cards_to_envelopes(
     let mut missing_envelopes_in_file: HashSet<EnvelopeName> =
         project_manager.envelopes_in_config().cloned().collect();
 
-    // Collect cell card indices up front: FILL insertion is a token splice that
-    // leaves indices stable, so we can read then mutate by the same index.
-    let cell_indices: Vec<usize> = envelope_structure.cells().map(|c| c.card_index).collect();
+    // Collect cell slots up front: FILL insertion is a token splice that leaves
+    // slots stable, so we can read then mutate by the same slot.
+    let cell_slots: Vec<u32> = envelope_structure.cells().map(|c| c.slot()).collect();
 
-    for card_index in cell_indices {
-        let original_text = envelope_structure.card_source(card_index);
+    for slot in cell_slots {
+        let Some(view) = envelope_structure.cell_at(slot) else {
+            continue;
+        };
+        let original_text = view.text().to_owned();
         let Some(caps) = ENVELOPE_RE.captures(&original_text) else {
             continue;
         };
@@ -212,7 +215,7 @@ fn add_fill_cards_to_envelopes(
         };
 
         envelope_structure
-            .add_cell_param(card_index, fill_card_text.trim())
+            .add_cell_param(slot, fill_card_text.trim())
             .map_err(|e| GitronicsError::InvalidFillCard(fill_card_text, e.to_string()))?;
     }
 
@@ -263,15 +266,18 @@ fn model_stats(model: &Model) -> ModelStats {
     let mut cell_ids = Vec::new();
     let mut materials: BTreeSet<i64> = BTreeSet::new();
     for cell in model.cells() {
-        cell_ids.push(cell.id);
-        if let Some(m) = cell.material
+        cell_ids.push(cell.id().unwrap_or_default());
+        if let Some(m) = cell.material()
             && m != 0
         {
             materials.insert(m);
         }
     }
 
-    let surface_ids: Vec<i64> = model.surfaces().map(|s| s.id).collect();
+    let surface_ids: Vec<i64> = model
+        .surfaces()
+        .map(|s| s.id().unwrap_or_default())
+        .collect();
 
     ModelStats {
         cell_count: cell_ids.len(),
@@ -401,15 +407,6 @@ fn collect_build_report(
             .collect(),
         source: project_manager.source_name().map(|n| n.to_string()),
     })
-}
-
-/// Render merge conflicts as a human-readable, newline-separated list.
-fn format_conflicts(conflicts: &[migjorn::MergeConflict]) -> String {
-    conflicts
-        .iter()
-        .map(|c| c.to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Insert the provenance banner as comment lines just after the model's title.
