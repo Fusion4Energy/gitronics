@@ -2,7 +2,7 @@ use crate::{
     build_model,
     model_config::ModelConfig,
     types::{EnvelopeName, FileName, FillerMetadata, FillerName},
-    utils::{GitronicsError, parse_model_file},
+    utils::{GitronicsError, init_thread_pool, parse_model_file, write_output_gitignore},
 };
 use indexmap::IndexMap;
 use log::info;
@@ -15,6 +15,7 @@ use std::{
 };
 
 pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), GitronicsError> {
+    init_thread_pool();
     info!("Reading MCNP model from file: {}", mcnp_input.display());
     let file_name = FileName::new(mcnp_input.display().to_string());
     let model = parse_model_file(mcnp_input, &file_name)?;
@@ -23,7 +24,7 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
     create_dir_all(output_path.join("reference_model/filler_models"))?;
     create_dir_all(output_path.join("configurations"))?;
     create_dir_all(output_path.join("output"))?;
-    fs::write(output_path.join("output/.gitignore"), "*\n")?;
+    write_output_gitignore(&output_path.join("output"))?;
 
     // Extract every universe into its own filler model file.
     info!("Extracting universes");
@@ -142,11 +143,15 @@ fn replace_fills_with_placeholders(
     for (slot, cell_id, fill) in placements {
         let filler_name = FillerName::new(format!("universe_{}", fill.universe));
         let envelope_name = EnvelopeName::new(format!("envelope_{cell_id}"));
+        // `Fill::transform` is the parenthesised transform exactly as written —
+        // `(30)`, not `30` — so it must not be wrapped in parentheses again.
+        // A starred fill is recorded as `*(30)`, which `build` turns back into
+        // `*fill=<universe> (30)`.
         let transform = fill.transform.map(|inner| {
             if fill.starred {
-                format!("*({inner})")
+                format!("*{inner}")
             } else {
-                format!("({inner})")
+                inner
             }
         });
 

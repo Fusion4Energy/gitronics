@@ -1,0 +1,30 @@
+Round-trip test model with filled universes
+c Level-0 cells. Between them these cover every placement `migrate` has to
+c round-trip: a bare fill, a fill through a named transformation, a starred
+c fill with an inline transformation, and a cell with no fill at all.
+1  0        -1      imp:n=1 fill=1
+2  0         1 -2   imp:n=1 fill=2 (30)
+3  0         2 -3   imp:n=1 *fill=1 (0 0 5)
+4  0         3 -4   imp:n=1
+5  0         4      imp:n=0
+c Universe 1
+10 5 -1.00  -10     imp:n=1 u=1
+11 0         10     imp:n=1 u=1
+c Universe 2
+20 6 -7.87  -20     imp:n=1 u=2
+21 0         20     imp:n=1 u=2
+
+1  SO 10
+2  SO 20
+3  SO 30
+4  SO 40
+10 SO 4
+20 SO 6
+
+TR30 0 0 5
+M5 1001 1
+M6 26056 1
+F4:N 1
+MODE N
+NPS 1000
+SDEF pos 0 0 0

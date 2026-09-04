@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "config_path": "project/config.yaml",
+  "gitronics_version": "1.2.3",
+  "commit_hash": "abc1234",
+  "date_time": "2026-01-01 00:00:00 UTC",
+  "total_cells": 500,
+  "total_surfaces": 800,
+  "envelope_entries": [
+    {
+      "envelope_name": "env_a",
+      "filler_name": "universe_101",
+      "universe_id": 101,
+      "transform": "TR1",
+      "metadata": {
+        "description": "Blanket A",
+        "zone": "Tokamak",
+        "sector": "1"
+      }
+    },
+    {
+      "envelope_name": "env_b",
+      "filler_name": "universe_101",
+      "universe_id": 101,
+      "metadata": {
+        "zone": "Tokamak",
+        "sector": "1"
+      }
+    },
+    {
+      "envelope_name": "env_null"
+    }
+  ],
+  "filler_entries": [
+    {
+      "name": "universe_101",
+      "universe_id": 101,
+      "envelope_count": 2,
+      "cell_count": 120,
+      "surface_count": 200,
+      "cell_id_runs": [
+        [
+          250000,
+          250041
+        ],
+        [
+          250100,
+          250178
+        ]
+      ],
+      "surface_id_runs": [
+        [
+          250000,
+          250199
+        ]
+      ],
+      "materials": [
+        110,
+        907
+      ],
+      "envelopes": [
+        "env_a",
+        "env_b"
+      ],
+      "metadata": {
+        "description": "Central solenoid",
+        "pbs": "11"
+      }
+    }
+  ],
+  "materials": [
+    "all_materials.mat"
+  ],
+  "tallies": [
+    "neutron_flux.tally"
+  ],
+  "transforms": [],
+  "source": "plasma.source"
+}

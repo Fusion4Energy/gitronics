@@ -107,3 +107,30 @@ jobs:
 
             - name: Run Python tests
               run: pytest
+
+    report-viewer:
+        name: Report viewer (JS)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+                  cache-dependency-path: report/package-lock.json
+
+            - name: Install test dependencies
+              working-directory: report
+              run: npm ci
+
+            # The viewer ships as three plain files inlined by `include_str!` —
+            # there is no bundle step, so this job never runs cargo and cargo
+            # never runs node.
+            - name: Syntax check
+              working-directory: report
+              run: node --check report.js
+
+            - name: Render tests (jsdom)
+              working-directory: report
+              run: node --test 'test/*.test.mjs'

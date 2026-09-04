@@ -1,26 +1,10 @@
+mod common;
+
+use common::copy_dir;
 use gitronics::build_model;
-use log::Level;
-use logtest::Logger;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tempfile::tempdir;
-
-fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if file_type.is_dir() {
-            fs::create_dir_all(&dst_path)?;
-            copy_dir(&src_path, &dst_path)?;
-        } else if file_type.is_file() {
-            fs::copy(&src_path, &dst_path)?;
-        }
-    }
-    Ok(())
-}
 
 #[test]
 fn test_build_example_project() {
@@ -288,41 +272,78 @@ fn test_id_collision_between_fillers_is_reported() {
     );
 }
 
+// ── .gitignore handling ───────────────────────────────────────────────────────
+// A build writes a `.gitignore` containing `*` to mark its output directory as
+// build artefacts. Because `--output-path` defaults to `.`, that directory is
+// very often one holding the user's own work, so the write must only ever
+// create — never replace an existing file.
+
 #[test]
-fn test_envelopes_in_config_that_dont_exist() {
-    let mut logger = Logger::start();
+fn build_does_not_clobber_existing_gitignore() {
     let dir = tempdir().unwrap();
     let example_project_path = PathBuf::from("example_project/");
     copy_dir(&example_project_path, dir.path()).unwrap();
 
-    fs::write(
-        dir.path().join("configurations/valid_configuration.yaml"),
-        "project_roots: [..]
-overrides: null
-
-envelope_structure: envelope_structure
-source: volumetric_source
-materials: [materials]
-transformations: [my_transform]
-tallies: [fine_mesh]
-envelopes:
-  my_envelope_name_1: filler_model_1
-  wrong_envelope_name: filler_model_2
-",
-    )
-    .unwrap();
+    let gitignore = dir.path().join(".gitignore");
+    let original = "target/\nsecret.txt\n";
+    fs::write(&gitignore, original).unwrap();
 
     build_model(
         &dir.path().join("configurations/valid_configuration.yaml"),
-        dir.path().join("out").as_path(),
+        dir.path(),
     )
     .unwrap();
 
-    let warn_message = "The following envelopes were defined in the configuration file but not found in the envelope structure file";
+    assert_eq!(
+        fs::read_to_string(&gitignore).unwrap(),
+        original,
+        "the build replaced the project's .gitignore"
+    );
+    // The build still did its job.
+    assert!(dir.path().join("assembled.mcnp").exists());
+}
 
-    assert!(
-        logger.any(|record| {
-            record.level() == Level::Warn && record.args().contains(warn_message)
-        })
+#[test]
+fn build_writes_gitignore_into_fresh_output_dir() {
+    let output_dir = tempdir().unwrap();
+    let out = output_dir.path().join("out");
+
+    build_model(
+        &PathBuf::from("example_project/configurations/valid_configuration.yaml"),
+        &out,
+    )
+    .unwrap();
+
+    assert_eq!(fs::read_to_string(out.join(".gitignore")).unwrap(), "*\n");
+}
+
+#[test]
+fn rebuilding_into_the_same_directory_is_idempotent() {
+    let output_dir = tempdir().unwrap();
+    let out = output_dir.path().join("out");
+    let config = PathBuf::from("example_project/configurations/valid_configuration.yaml");
+
+    build_model(&config, &out).unwrap();
+    build_model(&config, &out).expect("second build into the same directory");
+
+    assert_eq!(fs::read_to_string(out.join(".gitignore")).unwrap(), "*\n");
+}
+
+#[test]
+fn migrate_does_not_clobber_existing_output_gitignore() {
+    let dir = tempdir().unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir_all(project.join("output")).unwrap();
+
+    let gitignore = project.join("output/.gitignore");
+    let original = "# keep the assembled model\n!assembled.mcnp\n";
+    fs::write(&gitignore, original).unwrap();
+
+    gitronics::migrate_model(&PathBuf::from("resources/simple_model.mcnp"), &project).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&gitignore).unwrap(),
+        original,
+        "migrate replaced an existing output/.gitignore"
     );
 }

@@ -6,7 +6,7 @@
 //! - Logger initialization
 
 use crate::types::{EnvelopeName, FileName, FillerName};
-use log::LevelFilter;
+use log::{LevelFilter, info};
 use migjorn::{Model, Severity};
 use path_clean::PathClean;
 use std::collections::HashMap;
@@ -162,7 +162,7 @@ pub fn read_data_cards_text(path: &Path, file_name: &FileName) -> Result<String,
 /// (`M1`, `F4`, `TR1`) order by that number and come first; mnemonics without a
 /// trailing number (`SDEF`, `MODE`) fall back to alphabetical order and come
 /// last — matching the old `DataCardId::{Int, String}` ordering.
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum DataCardKey {
     Int(u32),
     Str(String),
@@ -217,6 +217,38 @@ fn is_mcnp_comment(line: &str) -> bool {
     }
 }
 
+/// Marks a build-output directory as ignored by git, by writing a `.gitignore`
+/// containing `*`.
+///
+/// Only ever *creates*: an existing `.gitignore` is never modified. A build
+/// writes into a directory the user chose — with `--output-path` defaulting to
+/// `.`, very often a directory that already holds their own work — and
+/// overwriting the ignore rules of such a directory silently discards them.
+///
+/// Uses `create_new` rather than an `exists()` check so the decision and the
+/// write are one atomic operation.
+pub fn write_output_gitignore(dir: &Path) -> Result<(), GitronicsError> {
+    let path = dir.join(".gitignore");
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut file) => file
+            .write_all(b"*\n")
+            .map_err(|source| GitronicsError::io_path(&path, source)),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            info!(
+                "`{}` already exists; leaving it unchanged. Build artefacts in this \
+                 directory are only ignored by git if that file says so.",
+                path.display()
+            );
+            Ok(())
+        }
+        Err(source) => Err(GitronicsError::io_path(&path, source)),
+    }
+}
+
 /// Recursively discovers and indexes all project files by their stem names.
 ///
 /// Walks through the given directory tree and collects files with valid suffixes
@@ -251,6 +283,41 @@ pub fn get_file_paths<P: AsRef<Path>>(
                 }
             }
         })
+}
+
+/// Upper bound on the global rayon pool — see [`init_thread_pool`]. Past a
+/// handful of threads the nesting overhead grows faster than the work shrinks,
+/// and a machine with fewer cores than this should not be oversubscribed.
+const MAX_RAYON_THREADS: usize = 8;
+
+/// Sizes the global rayon pool once, before any parsing touches it.
+///
+/// gitronics parallelises across *files* on the same pool migjorn parallelises
+/// within a file. Nesting the two on a pool sized to the core count spends most
+/// of its time parking and waking threads rather than doing work: on a 96-core
+/// machine, assembling a 376 MB model costs 12.1 s of user time against 17.3 s
+/// of system time, which capping the pool brings down to 7.3 s and 3.8 s.
+/// migjorn's own module documentation names this case and prescribes the cap.
+///
+/// This does not affect the output. migjorn's segmentation is independent of
+/// the pool size, so a build depends only on its inputs — `tests/test_determinism.rs`
+/// pins that.
+///
+/// An explicit `RAYON_NUM_THREADS` is the user's decision and is left alone.
+/// Failure to build the pool means one already exists — nothing we need to act
+/// on.
+pub fn init_thread_pool() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if std::env::var_os("RAYON_NUM_THREADS").is_some() {
+            return;
+        }
+        let threads = std::thread::available_parallelism()
+            .map_or(MAX_RAYON_THREADS, |p| p.get().min(MAX_RAYON_THREADS));
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global();
+    });
 }
 
 /// Initializes the application logger with custom formatting.
@@ -356,6 +423,46 @@ mod tests {
         let mut chunks = vec!["m5 1001 1\nm2 8016 1".to_string()];
         sort_data_card_chunks(&mut chunks);
         assert_eq!(chunks, vec!["m5 1001 1\nm2 8016 1".to_string()]);
+    }
+
+    #[test]
+    fn first_data_card_key_reads_the_trailing_id_of_the_mnemonic() {
+        assert_eq!(first_data_card_key("m1 1001 1"), DataCardKey::Int(1));
+        assert_eq!(first_data_card_key("M100 1001 1"), DataCardKey::Int(100));
+        assert_eq!(first_data_card_key("*TR1 0 0 0"), DataCardKey::Int(1));
+        assert_eq!(first_data_card_key("F4:N 1"), DataCardKey::Int(4));
+        assert_eq!(first_data_card_key("FMESH14:n"), DataCardKey::Int(14));
+    }
+
+    #[test]
+    fn first_data_card_key_falls_back_to_the_uppercased_mnemonic() {
+        assert_eq!(
+            first_data_card_key("sdef pos=0 0 0"),
+            DataCardKey::Str("SDEF".to_string())
+        );
+        assert_eq!(
+            first_data_card_key("MODE N P"),
+            DataCardKey::Str("MODE".to_string())
+        );
+    }
+
+    #[test]
+    fn first_data_card_key_skips_comments_and_blanks() {
+        assert_eq!(
+            first_data_card_key("C a header\nc another\n\nm7 1001 1"),
+            DataCardKey::Int(7)
+        );
+        // Nothing but comments has no id at all.
+        assert_eq!(
+            first_data_card_key("C only a comment"),
+            DataCardKey::Str(String::new())
+        );
+        assert_eq!(first_data_card_key(""), DataCardKey::Str(String::new()));
+    }
+
+    #[test]
+    fn numbered_cards_sort_before_unnumbered_ones() {
+        assert!(DataCardKey::Int(9999) < DataCardKey::Str("AAAA".to_string()));
     }
 
     #[test]

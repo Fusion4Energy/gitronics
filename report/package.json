@@ -1,0 +1,15 @@
+{
+  "name": "gitronics-report",
+  "private": true,
+  "description": "Tests for the gitronics build-report viewer. Not a build step: report.html, report.css and report.js are inlined verbatim by src/build_report.rs via include_str!.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs'",
+    "check": "node --check report.js",
+    "lint": "eslint report.js test"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "jsdom": "^26.0.0"
+  }
+}

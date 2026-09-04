@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 description = "Build MCNP neutronics models from modular components"
 license = "EUPL-1.2"
+# The published crate needs only the three files `include_str!` inlines; the
+# viewer's test harness and its dependencies are development-only.
+exclude = ["report/test", "report/node_modules", "report/package.json", "report/package-lock.json"]
 
 [[bin]]
 name = "gitronics"
@@ -19,7 +22,7 @@ pyo3 = { version = "0.23", features = [
     "abi3-py39",
     "generate-import-lib",
 ] }
-migjorn = { version = "0.3.7" }
+migjorn = { version = "0.3.8" }
 walkdir = "2.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-saphyr = "0.0.26"

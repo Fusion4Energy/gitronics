@@ -91,37 +91,54 @@ impl BuildReport {
             .unwrap_or_else(|e| format!("{{\"error\":\"failed to serialize build report: {e}\"}}"))
     }
 
-    /// Renders the complete self-contained interactive HTML document.
-    pub fn generate_html(&self) -> String {
-        let data = escape_json_for_script(&self.to_json());
+    /// Renders the complete self-contained interactive HTML document around an
+    /// already-serialised manifest.
+    ///
+    /// A build writes both `build_report.json` and `build_report.html`; taking
+    /// the JSON as an argument lets it serialise the manifest once rather than
+    /// once per artefact.
+    pub fn generate_html_from_json(&self, json: &str) -> String {
+        let data = escape_json_for_script(json);
+        let mut title = String::new();
+        push_escaped_text(&mut title, &self.config_path);
 
-        let mut out = String::with_capacity(64 * 1024 + data.len());
-        out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
-        out.push_str("  <meta charset=\"UTF-8\">\n");
-        out.push_str(
-            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n",
-        );
-        out.push_str("  <title>Build Report — ");
-        push_escaped_text(&mut out, &self.config_path);
-        out.push_str("</title>\n");
-        // Set the theme before first paint to avoid a flash of the wrong theme.
-        out.push_str(
-            "  <script>try{var t=localStorage.getItem('gitronics-theme')||\
-             ((window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');\
-             document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>\n",
-        );
-        out.push_str("  <style>\n");
-        out.push_str(include_str!("report.css"));
-        out.push_str("\n  </style>\n</head>\n<body>\n");
-        out.push_str("  <script type=\"application/json\" id=\"report-data\">");
-        out.push_str(&data);
-        out.push_str("</script>\n");
-        out.push_str("  <script>\n");
-        out.push_str(include_str!("report.js"));
-        out.push_str("\n  </script>\n</body>\n</html>\n");
+        let mut out =
+            String::with_capacity(TEMPLATE.len() + STYLE.len() + SCRIPT.len() + data.len());
+        let mut rest = TEMPLATE;
+        // Substituted in document order, so a single forward scan suffices and
+        // no placeholder can be matched inside a value already substituted.
+        for (placeholder, value) in [
+            (TITLE_MARKER, title.as_str()),
+            (STYLE_MARKER, STYLE),
+            (DATA_MARKER, data.as_str()),
+            (SCRIPT_MARKER, SCRIPT),
+        ] {
+            let (before, after) = rest
+                .split_once(placeholder)
+                .expect("report.html is missing a placeholder; see template_has_every_placeholder");
+            out.push_str(before);
+            out.push_str(value);
+            rest = after;
+        }
+        out.push_str(rest);
         out
     }
 }
+
+// ─── Template ─────────────────────────────────────────────────────────────────
+
+/// The viewer is three plain files under `report/`, inlined into one
+/// self-contained document at build time. They are not compiled or bundled —
+/// `include_str!` is the whole pipeline — so a Rust-only contributor needs no
+/// JavaScript toolchain, and `cargo publish` needs no build step.
+const TEMPLATE: &str = include_str!("../report/report.html");
+const STYLE: &str = include_str!("../report/report.css");
+const SCRIPT: &str = include_str!("../report/report.js");
+
+const TITLE_MARKER: &str = "{{TITLE}}";
+const STYLE_MARKER: &str = "{{STYLE}}";
+const DATA_MARKER: &str = "{{DATA}}";
+const SCRIPT_MARKER: &str = "{{SCRIPT}}";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -165,6 +182,11 @@ fn push_escaped_text(out: &mut String, s: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Renders a report to HTML the way a build does.
+    fn render(report: &BuildReport) -> String {
+        report.generate_html_from_json(&report.to_json())
+    }
 
     /// Builds a free-form metadata map from `(key, json-value)` pairs.
     fn meta(pairs: &[(&str, serde_json::Value)]) -> Metadata {
@@ -238,7 +260,7 @@ mod tests {
 
     #[test]
     fn html_is_valid_document() {
-        let html = sample_report().generate_html();
+        let html = render(&sample_report());
         assert!(html.starts_with("<!DOCTYPE html>"), "missing doctype");
         assert!(html.contains("<html"), "missing <html>");
         assert!(html.contains("</html>"), "missing </html>");
@@ -247,7 +269,7 @@ mod tests {
 
     #[test]
     fn html_embeds_data_and_assets() {
-        let html = sample_report().generate_html();
+        let html = render(&sample_report());
         assert!(
             html.contains("id=\"report-data\""),
             "missing embedded data block"
@@ -259,7 +281,7 @@ mod tests {
 
     #[test]
     fn title_contains_config_path() {
-        let html = sample_report().generate_html();
+        let html = render(&sample_report());
         assert!(
             html.contains("project/config.yaml"),
             "config path missing from title"
@@ -346,13 +368,132 @@ mod tests {
         assert!(value.get("source").is_none(), "source should be omitted");
     }
 
+    // ── Shared JS fixture ─────────────────────────────────────────────────────
+
+    /// The JavaScript viewer is tested against `sample_report()` too, so the two
+    /// must describe the same manifest. Keeping the fixture generated from here
+    /// means the JSON contract — `SCHEMA_VERSION` included — cannot drift out
+    /// from under the viewer unnoticed.
+    ///
+    /// Regenerate with `UPDATE_GOLDEN=1 cargo test`.
+    #[test]
+    fn js_fixture_matches_sample_report() {
+        const FIXTURE_PATH: &str = "report/test/fixtures/sample_report.json";
+        let expected = sample_report().to_json();
+
+        if std::env::var_os("UPDATE_GOLDEN").is_some() {
+            std::fs::create_dir_all("report/test/fixtures").unwrap();
+            std::fs::write(FIXTURE_PATH, &expected).unwrap();
+            return;
+        }
+
+        let actual = std::fs::read_to_string(FIXTURE_PATH).unwrap_or_else(|e| {
+            panic!("could not read `{FIXTURE_PATH}`: {e}\nRun `UPDATE_GOLDEN=1 cargo test`.")
+        });
+        assert_eq!(
+            actual, expected,
+            "`{FIXTURE_PATH}` is stale — the viewer is being tested against a \
+             manifest gitronics no longer produces. Run `UPDATE_GOLDEN=1 cargo test`."
+        );
+    }
+
+    // ── Template ──────────────────────────────────────────────────────────────
+
+    /// `generate_html_from_json` scans the template once, forwards, so every
+    /// placeholder must be present exactly once and in this order. The `expect`
+    /// in that scan can then never fire in production.
+    #[test]
+    fn template_has_every_placeholder_in_document_order() {
+        let positions: Vec<usize> = [TITLE_MARKER, STYLE_MARKER, DATA_MARKER, SCRIPT_MARKER]
+            .iter()
+            .map(|m| {
+                assert_eq!(
+                    TEMPLATE.matches(m).count(),
+                    1,
+                    "`{m}` must appear exactly once in report/report.html"
+                );
+                TEMPLATE.find(m).unwrap()
+            })
+            .collect();
+
+        let mut sorted = positions.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            positions, sorted,
+            "placeholders must appear in the order they are substituted"
+        );
+    }
+
+    /// The document shell is not covered by a golden file (it carries ~90 KB of
+    /// inlined CSS and JS), so pin the parts that matter here.
+    #[test]
+    fn html_shell_is_stable() {
+        let html = render(&sample_report());
+        assert!(html.starts_with(
+            "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n"
+        ));
+        // The theme is set before first paint, or the page flashes the wrong one.
+        assert!(html.contains(
+            "<script>try{var t=localStorage.getItem('gitronics-theme')||\
+((window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');\
+document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>"
+        ));
+        assert!(html.contains("<script type=\"application/json\" id=\"report-data\">"));
+        assert!(html.ends_with("\n  </script>\n</body>\n</html>\n"));
+        // No placeholder survived substitution.
+        for marker in [TITLE_MARKER, STYLE_MARKER, DATA_MARKER, SCRIPT_MARKER] {
+            assert!(!html.contains(marker), "`{marker}` was not substituted");
+        }
+    }
+
+    #[test]
+    fn assets_are_inlined_not_linked() {
+        let html = render(&sample_report());
+        assert!(html.contains("--accent"), "stylesheet not inlined");
+        assert!(
+            html.contains("gitronics build report"),
+            "viewer script not inlined"
+        );
+        // A self-contained, offline document references nothing external.
+        assert!(!html.contains("<link rel=\"stylesheet\""));
+        assert!(!html.contains("src=\"http"));
+    }
+
+    // ── Escaping helpers ──────────────────────────────────────────────────────
+
+    #[test]
+    fn json_escaping_neutralises_markup_and_line_separators() {
+        assert_eq!(escape_json_for_script("<>&"), "\\u003c\\u003e\\u0026");
+        assert_eq!(
+            escape_json_for_script("a\u{2028}b\u{2029}c"),
+            "a\\u2028b\\u2029c"
+        );
+        // Everything else, including non-ASCII, passes through untouched.
+        assert_eq!(escape_json_for_script("plain — text"), "plain — text");
+        assert_eq!(escape_json_for_script(""), "");
+    }
+
+    #[test]
+    fn text_escaping_covers_every_html_special_character() {
+        let mut out = String::new();
+        push_escaped_text(&mut out, "&<>\"'");
+        assert_eq!(out, "&amp;&lt;&gt;&quot;&#39;");
+    }
+
+    #[test]
+    fn text_escaping_appends_rather_than_replaces() {
+        let mut out = String::from("prefix:");
+        push_escaped_text(&mut out, "<x>");
+        assert_eq!(out, "prefix:&lt;x&gt;");
+    }
+
     // ── Injection safety ──────────────────────────────────────────────────────
 
     #[test]
     fn script_breakout_is_neutralised_in_html() {
         let mut report = sample_report();
         report.filler_entries[0].name = FillerName::new("</script><script>alert(1)</script>");
-        let html = report.generate_html();
+        let html = render(&report);
         // The literal closing tag must never appear inside the data block.
         assert!(
             !html.contains("</script><script>alert(1)"),
@@ -365,7 +506,7 @@ mod tests {
     #[test]
     fn embedded_json_data_block_has_no_raw_angle_brackets() {
         let report = sample_report();
-        let html = report.generate_html();
+        let html = render(&report);
         let start = html.find("id=\"report-data\">").unwrap() + "id=\"report-data\">".len();
         let end = html[start..].find("</script>").unwrap() + start;
         let block = &html[start..end];

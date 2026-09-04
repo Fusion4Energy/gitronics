@@ -660,9 +660,9 @@ dependencies = [
 
 [[package]]
 name = "migjorn"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f04bd8d92555ab2d29db8a483798d16cc6732494f5cb39f3496857607dfd2ec6"
+checksum = "be05ea7014f0fef2c72585bec7c1bd8ad9ace99e9507af97219bf9cc0839b2a4"
 dependencies = [
  "compact_str",
  "migjorn-syntax",
@@ -672,9 +672,9 @@ dependencies = [
 
 [[package]]
 name = "migjorn-syntax"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "284cf94f03ac10db50895b4598e87cb623f23639d46f473a470a5214dd0b8bda"
+checksum = "80a377cda9da7285b02b3fdca43a605ee4973abc60bd7d2528eed00f5cea4b02"
 dependencies = [
  "compact_str",
  "memchr",

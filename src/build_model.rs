@@ -1,17 +1,19 @@
 use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry, SCHEMA_VERSION};
 use crate::project_manager::ProjectManager;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
-use crate::utils::GitronicsError;
+use crate::utils::{GitronicsError, init_thread_pool, write_output_gitignore};
 
 use git2::Repository;
 use log::{info, warn};
 use migjorn::Model;
 use regex::Regex;
 use std::collections::{BTreeSet, HashSet};
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufWriter, Write};
 use std::{collections::HashMap, path::Path, sync::LazyLock};
 
 pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), GitronicsError> {
+    init_thread_pool();
     info!(
         "Starting model build process for: {}",
         config_path.display()
@@ -59,37 +61,44 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     )?;
 
     // Compose: drop the ignored data blocks, then merge every filler's geometry
-    // into the envelope structure (collision-checked against the disjoint-range
-    // convention).
+    // and the configured data cards into the envelope structure
+    // (collision-checked against the disjoint-range convention).
     info!("Composing model");
     envelope_structure = envelope_structure.clear_data_cards();
-    let filler_models: Vec<Model> = fillers
-        .iter()
+
+    // `into_iter` so each filler's original model — which still carries the data
+    // cards `clear_data_cards` drops — is freed as soon as its cleared clone
+    // exists, instead of every original staying alive alongside every clone.
+    let mut to_merge: Vec<Model> = fillers
+        .into_iter()
         .map(|(_, model)| model.clear_data_cards())
         .collect();
-    envelope_structure
-        .merge(filler_models)
-        .map_err(|conflicts| GitronicsError::MergeConflicts(conflicts.join("\n")))?;
 
-    // Append the configured data cards to the data block.
     let data_text = [transforms, materials, tallies, source]
         .into_iter()
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    let mut assembled_source = envelope_structure.to_source();
     if !data_text.is_empty() {
-        if !assembled_source.ends_with('\n') {
-            assembled_source.push('\n');
-        }
-        assembled_source.push_str(&data_text);
-        assembled_source.push('\n');
+        // Block structure is positional — title line, then the cell, surface and
+        // data blocks separated by blank lines — so this parses to a model whose
+        // only content cards are the data cards. `merge` appends them at the end
+        // of the data block and indexes their material/transform ids, which is
+        // exactly what re-parsing the whole assembled source used to buy, for the
+        // size of the data cards rather than the size of the whole model.
+        to_merge.push(Model::parse(&format!(
+            "gitronics data cards\n\n\n{data_text}\n"
+        )));
     }
-    let assembled_model = Model::parse(&assembled_source);
 
-    // Validate the assembled model.
+    envelope_structure
+        .merge(to_merge)
+        .map_err(|conflicts| GitronicsError::MergeConflicts(conflicts.join("\n")))?;
+
+    // Validate the assembled model. `merge` indexed every card it absorbed, so
+    // this reads the same ids a re-parse would have built.
     info!("Performing validation checks on the assembled model");
-    let problems = assembled_model.validate();
+    let problems = envelope_structure.validate();
     if !problems.is_empty() {
         return Err(GitronicsError::ValidationError(problems.join("\n")));
     }
@@ -97,16 +106,20 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     // Write the assembled model with the provenance banner.
     info!("Writing assembled model to file");
     let assembled_path = project_manager.output_path().join("assembled.mcnp");
-    let final_source = insert_banner(&assembled_model.to_source(), config_path);
-    fs::write(&assembled_path, final_source)?;
-    fs::write(output_path.join(".gitignore"), "*\n")?;
+    write_assembled(
+        &envelope_structure,
+        &assembled_path,
+        &banner_text(config_path),
+    )?;
+    write_output_gitignore(project_manager.output_path())?;
 
     // Write the HTML build report and its machine-readable JSON manifest.
     info!("Writing build report");
+    let json = report.to_json();
     let report_path = project_manager.output_path().join("build_report.html");
-    fs::write(&report_path, report.generate_html())?;
+    fs::write(&report_path, report.generate_html_from_json(&json))?;
     let json_path = project_manager.output_path().join("build_report.json");
-    fs::write(&json_path, report.to_json())?;
+    fs::write(&json_path, &json)?;
 
     info!(
         "Build completed successfully in: {}",
@@ -409,26 +422,82 @@ fn collect_build_report(
     })
 }
 
-/// Insert the provenance banner as comment lines just after the model's title.
-fn insert_banner(source: &str, config_path: &Path) -> String {
+/// The provenance banner: how, when and from what this model was assembled.
+/// No trailing newline.
+fn banner_text(config_path: &Path) -> String {
     let configuration = config_path.display().to_string();
     let date_time = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let gitronics_version = env!("CARGO_PKG_VERSION");
     let commit_hash = get_hash_of_project(project_dir(config_path));
 
-    let banner = format!(
+    format!(
         "C ============================================================\n\
          C  Built by gitronics v{gitronics_version}\n\
          C  Configuration : {configuration}\n\
          C  Git commit    : {commit_hash}\n\
          C  Date / time   : {date_time}\n\
          C ============================================================"
-    );
+    )
+}
 
+/// Insert the provenance banner as comment lines just after the model's title.
+///
+/// The build itself streams the model to disk through [`write_assembled`]; this
+/// is the same transformation expressed over a whole string, kept so a test can
+/// hold the two against each other.
+#[cfg(test)]
+fn insert_banner(source: &str, banner: &str) -> String {
     match source.split_once('\n') {
         Some((title, rest)) => format!("{title}\n{banner}\n{rest}"),
         None => format!("{source}\n{banner}\n"),
     }
+}
+
+/// Write `model`, with `banner` inserted after its title line, to `path`.
+///
+/// Streams the model card by card into a buffered writer rather than building
+/// the whole source in memory. `Cst::to_source` is a plain concatenation of each
+/// card's text, so the bytes written here are exactly
+/// `insert_banner(&model.to_source(), banner)` — for a 376 MB model that is
+/// three whole copies of the output not allocated.
+fn write_assembled(model: &Model, path: &Path, banner: &str) -> Result<(), GitronicsError> {
+    let file = File::create(path).map_err(|source| GitronicsError::io_path(path, source))?;
+    let mut writer = BufWriter::with_capacity(1 << 20, file);
+
+    // Buffer only as far as the first newline, so the split point is the one
+    // `insert_banner` would choose on the fully concatenated source.
+    let mut cards = model.cst().cards();
+    let mut head = String::new();
+    let mut newline_at = None;
+    for card in cards.by_ref() {
+        head.push_str(card.text());
+        if let Some(i) = head.find('\n') {
+            newline_at = Some(i);
+            break;
+        }
+    }
+
+    match newline_at {
+        Some(i) => {
+            writer.write_all(&head.as_bytes()[..=i])?; // title line, including '\n'
+            writer.write_all(banner.as_bytes())?;
+            writer.write_all(b"\n")?;
+            writer.write_all(&head.as_bytes()[i + 1..])?; // rest of that card
+        }
+        // The entire source has no newline: mirrors `insert_banner`'s `None` arm.
+        None => {
+            writer.write_all(head.as_bytes())?;
+            writer.write_all(b"\n")?;
+            writer.write_all(banner.as_bytes())?;
+            writer.write_all(b"\n")?;
+        }
+    }
+
+    for card in cards {
+        writer.write_all(card.text().as_bytes())?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 /// Describe the git state of the repository that contains `start_dir` (the
@@ -467,4 +536,160 @@ fn get_hash_of_project(start_dir: &Path) -> String {
                 })
         })
         .unwrap_or_else(|| "GIT repository not found".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    // ── Banner ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn banner_lands_after_the_title_line() {
+        let out = insert_banner("title\ncell cards\n", "C banner");
+        assert_eq!(out, "title\nC banner\ncell cards\n");
+    }
+
+    #[test]
+    fn banner_appends_to_a_source_with_no_newline() {
+        assert_eq!(insert_banner("title", "C banner"), "title\nC banner\n");
+    }
+
+    #[test]
+    fn banner_text_records_version_config_and_time() {
+        let banner = banner_text(Path::new("configurations/baseline.yaml"));
+        let lines: Vec<&str> = banner.lines().collect();
+        assert_eq!(lines.len(), 6, "banner is two rules around four fields");
+        assert!(lines[1].starts_with("C  Built by gitronics v"));
+        assert!(lines[2].contains("configurations/baseline.yaml"));
+        assert!(lines[3].starts_with("C  Git commit    : "));
+        assert!(lines[4].starts_with("C  Date / time   : "));
+        assert_eq!(lines[0], lines[5], "opening and closing rules match");
+    }
+
+    /// `write_assembled` streams what `insert_banner` would have built in
+    /// memory. The two must not drift apart.
+    #[test]
+    fn streamed_output_equals_insert_banner() {
+        let dir = tempdir().unwrap();
+        let banner = "C banner line 1\nC banner line 2";
+
+        for source in [
+            "title\n1 0 -1 imp:n=1\n\n1 SO 5\n\nM1 1001 1\n",
+            "just a title with no newline",
+            "title\n",
+        ] {
+            let model = Model::parse(source);
+            let path = dir.path().join("out.mcnp");
+            write_assembled(&model, &path, banner).unwrap();
+
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                insert_banner(&model.to_source(), banner),
+                "streamed and in-memory banner insertion differ for {source:?}"
+            );
+        }
+    }
+
+    // ── Id runs ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn runs_from_ids_coalesces_consecutive_values() {
+        assert_eq!(runs_from_ids(vec![]), Vec::<[i64; 2]>::new());
+        assert_eq!(runs_from_ids(vec![7]), vec![[7, 7]]);
+        assert_eq!(runs_from_ids(vec![1, 2, 3]), vec![[1, 3]]);
+        assert_eq!(
+            runs_from_ids(vec![1, 2, 5, 6, 9]),
+            vec![[1, 2], [5, 6], [9, 9]]
+        );
+    }
+
+    #[test]
+    fn runs_from_ids_sorts_and_deduplicates() {
+        assert_eq!(runs_from_ids(vec![3, 1, 2, 2, 1]), vec![[1, 3]]);
+        assert_eq!(runs_from_ids(vec![-2, -1, 4]), vec![[-2, -1], [4, 4]]);
+    }
+
+    // ── Model statistics ──────────────────────────────────────────────────────
+
+    #[test]
+    fn model_stats_counts_cards_and_collects_materials() {
+        let model = Model::parse(
+            "t\n1 3 -1.0 -1 imp:n=1\n2 0 1 -2 imp:n=1\n3 3 -1.0 2 -3 imp:n=1\n\n\
+             1 SO 5\n2 SO 6\n3 SO 7\n\nM3 1001 1\n",
+        );
+        let stats = model_stats(&model);
+
+        assert_eq!(stats.cell_count, 3);
+        assert_eq!(stats.surface_count, 3);
+        assert_eq!(stats.cell_id_runs, vec![[1, 3]]);
+        assert_eq!(stats.surface_id_runs, vec![[1, 3]]);
+        // Void (material 0) is not a material; 3 appears twice but is distinct.
+        assert_eq!(stats.materials, vec![3]);
+    }
+
+    // ── Filler ordering ───────────────────────────────────────────────────────
+
+    #[test]
+    fn fillers_are_ordered_by_first_cell_id() {
+        let mk = |id: i64| {
+            Model::parse(&format!(
+                "t\n{id} 0 -1 imp:n=1 u=1\n\n1 SO 5\n\nM1 1001 1\n"
+            ))
+        };
+        let fillers = vec![
+            (FillerName::new("c"), mk(300)),
+            (FillerName::new("a"), mk(100)),
+            (FillerName::new("b"), mk(200)),
+        ];
+
+        let ordered = order_fillers_by_cell_id(fillers).unwrap();
+        let names: Vec<String> = ordered.iter().map(|(n, _)| n.to_string()).collect();
+        assert_eq!(names, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_filler_without_cells_is_rejected() {
+        let fillers = vec![(FillerName::new("empty"), Model::parse("just a title\n"))];
+        // `Model` is not `Debug`, so match rather than `unwrap_err`.
+        let Err(err) = order_fillers_by_cell_id(fillers) else {
+            panic!("a filler with no cells must be rejected");
+        };
+        assert!(
+            err.to_string().contains("No cell ID found"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // ── Git provenance ────────────────────────────────────────────────────────
+
+    #[test]
+    fn git_hash_falls_back_when_there_is_no_repository() {
+        // A directory outside any repository — `tempdir` is not under this one.
+        let dir = tempdir().unwrap();
+        assert_eq!(get_hash_of_project(dir.path()), "GIT repository not found");
+    }
+
+    #[test]
+    fn git_hash_describes_a_repository_without_tags() {
+        let dir = tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        fs::write(dir.path().join("f.txt"), "x").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("f.txt")).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("t", "t@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+
+        let hash = get_hash_of_project(dir.path());
+        assert_ne!(hash, "GIT repository not found");
+        // An untagged repository falls back to the short SHA.
+        assert!(
+            hash.len() >= 7 && hash.chars().next().unwrap().is_ascii_hexdigit(),
+            "expected a short SHA, got {hash:?}"
+        );
+    }
 }

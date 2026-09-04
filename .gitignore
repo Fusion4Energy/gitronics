@@ -5,3 +5,6 @@ __pycache__/
 *.pyd
 *.pdb
 /site
+node_modules/
+.pytest_cache/
+.ruff_cache/
