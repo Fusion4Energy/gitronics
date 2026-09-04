@@ -26,44 +26,72 @@ pub struct FillerMetadata {
 /// other key in a filler's `.metadata` file is treated as free-form metadata.
 pub const TRANSFORMATIONS_KEY: &str = "transformations";
 
-/// File stem name (filename without extension).
-///
-/// Example: `FileName::new("vacuum_vessel")`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct FileName(String);
+/// Defines a string-backed newtype with the standard `new`, `Deref<Target =
+/// str>`, `Display`, `From<String>` and `From<&str>` impls shared by every
+/// identifier type below. Extra derives (e.g. `Ord`) can be appended after
+/// the type name.
+macro_rules! string_newtype {
+    ($(#[$meta:meta])* $name:ident $(, derive($($extra:ident),+ $(,)?))?) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize $(, $($extra),+)?)]
+        pub struct $name(String);
 
-impl FileName {
-    /// Creates a new file name.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
+        impl $name {
+            #[doc = concat!("Creates a new `", stringify!($name), "`.")]
+            pub fn new(name: impl Into<String>) -> Self {
+                Self(name.into())
+            }
+        }
+
+        impl Deref for $name {
+            type Target = str;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                Self(s)
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(s: &str) -> Self {
+                Self(s.into())
+            }
+        }
+    };
 }
 
-impl Deref for FileName {
-    type Target = str;
+string_newtype!(
+    /// File stem name (filename without extension).
+    ///
+    /// Example: `FileName::new("vacuum_vessel")`
+    FileName
+);
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+string_newtype!(
+    /// Filler model name.
+    ///
+    /// Example: `FillerName::new("universe_101")`
+    FillerName,
+    derive(PartialOrd, Ord)
+);
 
-impl fmt::Display for FileName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for FileName {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for FileName {
-    fn from(s: &str) -> Self {
-        Self(s.into())
-    }
-}
+string_newtype!(
+    /// Envelope name.
+    ///
+    /// Example: `EnvelopeName::new("main_vessel")`
+    EnvelopeName
+);
 
 /// A filler's file is always named `<filler_name>.mcnp` by convention — the
 /// filler name *is* the file stem — so this conversion is exact, not a lookup.
@@ -73,89 +101,11 @@ impl From<&FillerName> for FileName {
     }
 }
 
-/// Filler model name.
-///
-/// Example: `FillerName::new("universe_101")`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct FillerName(String);
-
-impl FillerName {
-    /// Creates a new filler name.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-}
-
-impl Deref for FillerName {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl fmt::Display for FillerName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for FillerName {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for FillerName {
-    fn from(s: &str) -> Self {
-        Self(s.into())
-    }
-}
-
 /// The inverse of `FileName::from(&FillerName)` — see its doc comment. Only
 /// meaningful for a `FileName` that is known to name a filler.
 impl From<&FileName> for FillerName {
     fn from(file_name: &FileName) -> Self {
         Self(file_name.0.clone())
-    }
-}
-
-/// Envelope name.
-///
-/// Example: `EnvelopeName::new("main_vessel")`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct EnvelopeName(String);
-
-impl EnvelopeName {
-    /// Creates a new envelope name.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-}
-
-impl Deref for EnvelopeName {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl fmt::Display for EnvelopeName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<String> for EnvelopeName {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for EnvelopeName {
-    fn from(s: &str) -> Self {
-        Self(s.into())
     }
 }
 
