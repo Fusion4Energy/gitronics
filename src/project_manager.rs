@@ -1,7 +1,7 @@
+use crate::error::GitronicsError;
+use crate::fs_utils::get_file_paths;
 use crate::model_config::ModelConfig;
-use crate::project_manager::load_model_config::load_config;
 use crate::types::{EnvelopeName, FileName, FillerName};
-use crate::utils::{GitronicsError, get_file_paths};
 use indexmap::IndexMap;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -10,7 +10,6 @@ use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 mod load_metadata;
-mod load_model_config;
 mod load_project_files;
 
 /// Free-form metadata: an ordered map of arbitrary, project-defined keys to
@@ -39,8 +38,9 @@ impl ProjectManager {
         output_path: Q,
     ) -> Result<Self, GitronicsError> {
         let output_path = output_path.as_ref().to_path_buf();
-        create_dir_all(&output_path)?;
-        let model_config = load_config(&config_path)?;
+        create_dir_all(&output_path)
+            .map_err(|source| GitronicsError::io_path(&output_path, source))?;
+        let model_config = ModelConfig::load(&config_path)?;
         let file_paths = index_project_files(&model_config)?;
         Ok(Self {
             file_paths,
@@ -79,7 +79,10 @@ impl ProjectManager {
     }
 
     /// Retrieves the transformation name for a filler in a specific envelope.
-    /// Loads the filler's metadata if not already cached.
+    ///
+    /// The filler's metadata must already be cached — via [`Self::load_metadata_for_fillers`]
+    /// or [`Self::load_fillers_with_metadata`] — or this returns
+    /// [`GitronicsError::MetadataNotFound`].
     pub fn transformation(
         &self,
         filler_name: &FillerName,
@@ -151,7 +154,10 @@ fn index_project_files(
                     return Err(GitronicsError::DuplicateFileName(entry.key().clone()));
                 }
                 Entry::Vacant(entry) => {
-                    entry.insert(dunce::canonicalize(path)?);
+                    entry.insert(
+                        dunce::canonicalize(&path)
+                            .map_err(|source| GitronicsError::io_path(&path, source))?,
+                    );
                 }
             }
         }

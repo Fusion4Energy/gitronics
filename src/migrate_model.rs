@@ -1,8 +1,11 @@
 use crate::{
     build_model,
+    error::GitronicsError,
+    fs_utils::write_output_gitignore,
+    mcnp_io::parse_model_file,
     model_config::ModelConfig,
+    runtime::init_thread_pool,
     types::{EnvelopeName, FileName, FillerMetadata, FillerName},
-    utils::{GitronicsError, init_thread_pool, parse_model_file, write_output_gitignore},
 };
 use indexmap::IndexMap;
 use log::info;
@@ -21,10 +24,15 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
     let model = parse_model_file(mcnp_input, &file_name)?;
 
     // Create the output directory tree.
-    create_dir_all(output_path.join("reference_model/filler_models"))?;
-    create_dir_all(output_path.join("configurations"))?;
-    create_dir_all(output_path.join("output"))?;
-    write_output_gitignore(&output_path.join("output"))?;
+    let filler_models_dir = output_path.join("reference_model/filler_models");
+    create_dir_all(&filler_models_dir)
+        .map_err(|source| GitronicsError::io_path(&filler_models_dir, source))?;
+    let configurations_dir = output_path.join("configurations");
+    create_dir_all(&configurations_dir)
+        .map_err(|source| GitronicsError::io_path(&configurations_dir, source))?;
+    let output_dir = output_path.join("output");
+    create_dir_all(&output_dir).map_err(|source| GitronicsError::io_path(&output_dir, source))?;
+    write_output_gitignore(&output_dir)?;
 
     // Extract every universe into its own filler model file.
     info!("Extracting universes");
@@ -57,7 +65,8 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
 
     // Write every data card of the original model to a single data-cards file.
     let data_cards_file = output_path.join("reference_model/data_cards.source");
-    let mut writer = File::create(&data_cards_file)?;
+    let mut writer = File::create(&data_cards_file)
+        .map_err(|source| GitronicsError::io_path(&data_cards_file, source))?;
     writer.write_all(b"All the data cards of the original model\n")?;
     for card in model.data_cards() {
         writeln!(writer, "{}", card.text().trim_end())?;
@@ -93,10 +102,14 @@ fn write_baseline_config(
     baseline_config.set_default_project_root(Path::new("../reference_model"));
     baseline_config.set_source(FileName::new("data_cards"));
     let config_path = output_path.join("configurations/baseline.yaml");
-    let yaml_content = serde_saphyr::to_string(&baseline_config).map_err(|e| {
-        GitronicsError::YamlSerialize(config_path.display().to_string(), e.to_string())
+    let yaml_content = serde_saphyr::to_string(&baseline_config).map_err(|source| {
+        GitronicsError::YamlSerialize {
+            path: config_path.display().to_string(),
+            source,
+        }
     })?;
-    fs::write(&config_path, yaml_content)?;
+    fs::write(&config_path, yaml_content)
+        .map_err(|source| GitronicsError::io_path(&config_path, source))?;
     Ok(())
 }
 
@@ -108,10 +121,13 @@ fn write_metadata_files(
         let metadata_path = output_path
             .join("reference_model/filler_models")
             .join(format!("{filler_name}.metadata"));
-        let yaml_content = serde_saphyr::to_string(&metadata).map_err(|e| {
-            GitronicsError::YamlSerialize(metadata_path.display().to_string(), e.to_string())
-        })?;
-        fs::write(&metadata_path, yaml_content)?;
+        let yaml_content =
+            serde_saphyr::to_string(&metadata).map_err(|source| GitronicsError::YamlSerialize {
+                path: metadata_path.display().to_string(),
+                source,
+            })?;
+        fs::write(&metadata_path, yaml_content)
+            .map_err(|source| GitronicsError::io_path(&metadata_path, source))?;
     }
     Ok(())
 }

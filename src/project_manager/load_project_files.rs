@@ -9,8 +9,9 @@ use log::{info, warn};
 use migjorn::Model;
 use rayon::prelude::*;
 
+use crate::error::GitronicsError;
+use crate::mcnp_io::{parse_model_file, read_data_cards_text, sort_data_card_chunks};
 use crate::types::{FileName, FillerName};
-use crate::utils::{GitronicsError, parse_model_file, read_data_cards_text, sort_data_card_chunks};
 
 use super::ProjectManager;
 
@@ -57,6 +58,21 @@ impl ProjectManager {
                 Ok((filler_name.clone(), model))
             })
             .collect::<Result<Vec<_>, GitronicsError>>()
+    }
+
+    /// Loads all filler models (as [`Self::load_fillers`]) and, in the same
+    /// call, caches each one's metadata so [`Self::transformation`] is safe to
+    /// call for any of the returned fillers immediately afterwards.
+    ///
+    /// Pairing the two loads here — rather than leaving callers to sequence
+    /// `load_fillers` and `load_metadata_for_fillers` themselves — means the
+    /// precondition `transformation` documents can't be forgotten.
+    pub fn load_fillers_with_metadata(
+        &mut self,
+    ) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
+        let fillers = self.load_fillers()?;
+        self.load_metadata_for_fillers(fillers.iter().map(|(name, _)| name))?;
+        Ok(fillers)
     }
 
     /// Loads the transformation data-card text from the configured files.

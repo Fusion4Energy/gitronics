@@ -1,13 +1,15 @@
-use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry, SCHEMA_VERSION};
+use crate::build_report::BuildReport;
+use crate::error::GitronicsError;
+use crate::fs_utils::write_output_gitignore;
 use crate::project_manager::ProjectManager;
+use crate::runtime::init_thread_pool;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
-use crate::utils::{GitronicsError, init_thread_pool, write_output_gitignore};
 
 use git2::Repository;
 use log::{info, warn};
 use migjorn::Model;
 use regex::Regex;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::{collections::HashMap, path::Path, sync::LazyLock};
@@ -23,7 +25,9 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 
     // Load all files.
     let mut envelope_structure = project_manager.load_envelope_structure()?;
-    let unordered_fillers = project_manager.load_fillers()?;
+    // Loads every filler and caches its metadata in the same call, so
+    // `transformation` below is guaranteed to see it.
+    let unordered_fillers = project_manager.load_fillers_with_metadata()?;
     let transforms = project_manager.load_transforms()?;
     let materials = project_manager.load_materials()?;
     let tallies = project_manager.load_tallies()?;
@@ -32,8 +36,6 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     // Order fillers by their first cell id for deterministic output.
     let fillers = order_fillers_by_cell_id(unordered_fillers)?;
 
-    // Load metadata for each filler and cache it in the ProjectManager.
-    project_manager.load_metadata_for_fillers(fillers.iter().map(|(name, _)| name))?;
     // Load the descriptive envelope-structure metadata (best-effort).
     project_manager.load_envelope_metadata();
 
@@ -52,13 +54,14 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     add_fill_cards_to_envelopes(&project_manager, &universe_ids, &mut envelope_structure)?;
 
     // Collect build-report data before the models are consumed by composition.
-    let report = collect_build_report(
+    let report = BuildReport::from_build(
         config_path,
+        get_hash_of_project(project_dir(config_path)),
         &project_manager,
         &envelope_structure,
         &fillers,
         &universe_ids,
-    )?;
+    );
 
     // Compose: drop the ignored data blocks, then merge every filler's geometry
     // and the configured data cards into the envelope structure
@@ -117,9 +120,10 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     info!("Writing build report");
     let json = report.to_json();
     let report_path = project_manager.output_path().join("build_report.html");
-    fs::write(&report_path, report.generate_html_from_json(&json))?;
+    fs::write(&report_path, report.generate_html_from_json(&json))
+        .map_err(|source| GitronicsError::io_path(&report_path, source))?;
     let json_path = project_manager.output_path().join("build_report.json");
-    fs::write(&json_path, &json)?;
+    fs::write(&json_path, &json).map_err(|source| GitronicsError::io_path(&json_path, source))?;
 
     info!(
         "Build completed successfully in: {}",
@@ -244,182 +248,6 @@ fn add_fill_cards_to_envelopes(
         );
     }
     Ok(())
-}
-
-/// Per-model statistics derived directly from a parsed [`Model`] (reliable,
-/// independent of any metadata sidecar).
-struct ModelStats {
-    cell_count: usize,
-    surface_count: usize,
-    /// Exact cell ids used, run-length encoded as inclusive `[start, end]` runs.
-    cell_id_runs: Vec<[i64; 2]>,
-    /// Exact surface ids used, run-length encoded as inclusive `[start, end]`.
-    surface_id_runs: Vec<[i64; 2]>,
-    materials: Vec<i64>,
-}
-
-/// Coalesces a set of ids into sorted, inclusive `[start, end]` runs of
-/// consecutive values (a compact, lossless encoding of the exact id positions).
-fn runs_from_ids(mut ids: Vec<i64>) -> Vec<[i64; 2]> {
-    ids.sort_unstable();
-    ids.dedup();
-    let mut runs: Vec<[i64; 2]> = Vec::new();
-    for id in ids {
-        match runs.last_mut() {
-            Some(last) if id == last[1] + 1 => last[1] = id,
-            _ => runs.push([id, id]),
-        }
-    }
-    runs
-}
-
-/// Computes cell/surface counts, exact id runs and the distinct material set of
-/// a model in a single pass over its cells and surfaces.
-fn model_stats(model: &Model) -> ModelStats {
-    let mut cell_ids = Vec::new();
-    let mut materials: BTreeSet<i64> = BTreeSet::new();
-    for cell in model.cells() {
-        cell_ids.push(cell.id().unwrap_or_default());
-        if let Some(m) = cell.material()
-            && m != 0
-        {
-            materials.insert(m);
-        }
-    }
-
-    let surface_ids: Vec<i64> = model
-        .surfaces()
-        .map(|s| s.id().unwrap_or_default())
-        .collect();
-
-    ModelStats {
-        cell_count: cell_ids.len(),
-        surface_count: surface_ids.len(),
-        cell_id_runs: runs_from_ids(cell_ids),
-        surface_id_runs: runs_from_ids(surface_ids),
-        materials: materials.into_iter().collect(),
-    }
-}
-
-fn collect_build_report(
-    config_path: &Path,
-    project_manager: &ProjectManager,
-    envelope_structure: &Model,
-    fillers: &[(FillerName, Model)],
-    universe_ids: &HashMap<FillerName, UniverseId>,
-) -> Result<BuildReport, GitronicsError> {
-    let total_cells = envelope_structure.cells().count()
-        + fillers
-            .iter()
-            .map(|(_, m)| m.cells().count())
-            .sum::<usize>();
-    let total_surfaces = envelope_structure.surfaces().count()
-        + fillers
-            .iter()
-            .map(|(_, m)| m.surfaces().count())
-            .sum::<usize>();
-
-    let envelope_entries: Vec<EnvelopeEntry> = project_manager
-        .envelopes_in_config()
-        .map(|env_name| {
-            let filler_name: Option<FillerName> = project_manager
-                .filler_by_envelope(env_name)
-                .and_then(|opt| opt.clone());
-
-            let universe_id = filler_name
-                .as_ref()
-                .and_then(|f| universe_ids.get(f))
-                .copied();
-
-            let transform = filler_name.as_ref().and_then(|f| {
-                project_manager
-                    .transformation(f, env_name)
-                    .ok()
-                    .flatten()
-                    .map(str::to_string)
-            });
-
-            let meta = project_manager
-                .envelope_metadata(env_name)
-                .cloned()
-                .unwrap_or_default();
-            EnvelopeEntry {
-                envelope_name: env_name.clone(),
-                filler_name,
-                universe_id,
-                transform,
-                metadata: meta,
-            }
-        })
-        .collect();
-
-    let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
-    let mut filler_envelopes: HashMap<FillerName, Vec<EnvelopeName>> = HashMap::new();
-    for entry in &envelope_entries {
-        if let Some(filler_name) = &entry.filler_name {
-            *filler_envelope_counts
-                .entry(filler_name.clone())
-                .or_insert(0) += 1;
-            filler_envelopes
-                .entry(filler_name.clone())
-                .or_default()
-                .push(entry.envelope_name.clone());
-        }
-    }
-
-    let filler_entries: Vec<FillerEntry> = fillers
-        .iter()
-        .filter_map(|(name, model)| {
-            let universe_id = *universe_ids.get(name)?;
-            let envelope_count = *filler_envelope_counts.get(name).unwrap_or(&0);
-            let stats = model_stats(model);
-            Some(FillerEntry {
-                universe_id,
-                envelope_count,
-                cell_count: stats.cell_count,
-                surface_count: stats.surface_count,
-                cell_id_runs: stats.cell_id_runs,
-                surface_id_runs: stats.surface_id_runs,
-                materials: stats.materials,
-                envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
-                metadata: project_manager
-                    .filler_metadata(name)
-                    .cloned()
-                    .unwrap_or_default(),
-                name: name.clone(),
-            })
-        })
-        .collect();
-
-    Ok(BuildReport {
-        schema_version: SCHEMA_VERSION,
-        config_path: config_path.display().to_string(),
-        gitronics_version: env!("CARGO_PKG_VERSION"),
-        commit_hash: get_hash_of_project(project_dir(config_path)),
-        date_time: chrono::Utc::now()
-            .format("%Y-%m-%d %H:%M:%S UTC")
-            .to_string(),
-        total_cells,
-        total_surfaces,
-        envelope_entries,
-        filler_entries,
-        materials: project_manager
-            .materials_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        tallies: project_manager
-            .tallies_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        transforms: project_manager
-            .transforms_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        source: project_manager.source_name().map(|n| n.to_string()),
-    })
 }
 
 /// The provenance banner: how, when and from what this model was assembled.
@@ -590,43 +418,6 @@ mod tests {
                 "streamed and in-memory banner insertion differ for {source:?}"
             );
         }
-    }
-
-    // ── Id runs ───────────────────────────────────────────────────────────────
-
-    #[test]
-    fn runs_from_ids_coalesces_consecutive_values() {
-        assert_eq!(runs_from_ids(vec![]), Vec::<[i64; 2]>::new());
-        assert_eq!(runs_from_ids(vec![7]), vec![[7, 7]]);
-        assert_eq!(runs_from_ids(vec![1, 2, 3]), vec![[1, 3]]);
-        assert_eq!(
-            runs_from_ids(vec![1, 2, 5, 6, 9]),
-            vec![[1, 2], [5, 6], [9, 9]]
-        );
-    }
-
-    #[test]
-    fn runs_from_ids_sorts_and_deduplicates() {
-        assert_eq!(runs_from_ids(vec![3, 1, 2, 2, 1]), vec![[1, 3]]);
-        assert_eq!(runs_from_ids(vec![-2, -1, 4]), vec![[-2, -1], [4, 4]]);
-    }
-
-    // ── Model statistics ──────────────────────────────────────────────────────
-
-    #[test]
-    fn model_stats_counts_cards_and_collects_materials() {
-        let model = Model::parse(
-            "t\n1 3 -1.0 -1 imp:n=1\n2 0 1 -2 imp:n=1\n3 3 -1.0 2 -3 imp:n=1\n\n\
-             1 SO 5\n2 SO 6\n3 SO 7\n\nM3 1001 1\n",
-        );
-        let stats = model_stats(&model);
-
-        assert_eq!(stats.cell_count, 3);
-        assert_eq!(stats.surface_count, 3);
-        assert_eq!(stats.cell_id_runs, vec![[1, 3]]);
-        assert_eq!(stats.surface_id_runs, vec![[1, 3]]);
-        // Void (material 0) is not a material; 3 appears twice but is distinct.
-        assert_eq!(stats.materials, vec![3]);
     }
 
     // ── Filler ordering ───────────────────────────────────────────────────────

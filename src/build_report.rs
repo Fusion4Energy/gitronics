@@ -11,9 +11,12 @@
 
 use serde::Serialize;
 
-use crate::project_manager::Metadata;
+use crate::project_manager::{Metadata, ProjectManager};
 use crate::types::{EnvelopeName, FillerName, UniverseId};
 use indexmap::IndexMap;
+use migjorn::Model;
+use std::collections::{BTreeSet, HashMap};
+use std::path::Path;
 
 /// Schema version of the emitted manifest. Bump on breaking changes so the
 /// viewer (and downstream tooling) can adapt.
@@ -80,6 +83,190 @@ pub struct BuildReport {
     pub transforms: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+}
+
+// ─── Construction ─────────────────────────────────────────────────────────────
+
+/// Per-model statistics derived directly from a parsed [`Model`] (reliable,
+/// independent of any metadata sidecar).
+struct ModelStats {
+    cell_count: usize,
+    surface_count: usize,
+    /// Exact cell ids used, run-length encoded as inclusive `[start, end]` runs.
+    cell_id_runs: Vec<[i64; 2]>,
+    /// Exact surface ids used, run-length encoded as inclusive `[start, end]`.
+    surface_id_runs: Vec<[i64; 2]>,
+    materials: Vec<i64>,
+}
+
+/// Coalesces a set of ids into sorted, inclusive `[start, end]` runs of
+/// consecutive values (a compact, lossless encoding of the exact id positions).
+fn runs_from_ids(mut ids: Vec<i64>) -> Vec<[i64; 2]> {
+    ids.sort_unstable();
+    ids.dedup();
+    let mut runs: Vec<[i64; 2]> = Vec::new();
+    for id in ids {
+        match runs.last_mut() {
+            Some(last) if id == last[1] + 1 => last[1] = id,
+            _ => runs.push([id, id]),
+        }
+    }
+    runs
+}
+
+/// Computes cell/surface counts, exact id runs and the distinct material set of
+/// a model in a single pass over its cells and surfaces.
+fn model_stats(model: &Model) -> ModelStats {
+    let mut cell_ids = Vec::new();
+    let mut materials: BTreeSet<i64> = BTreeSet::new();
+    for cell in model.cells() {
+        cell_ids.push(cell.id().unwrap_or_default());
+        if let Some(m) = cell.material()
+            && m != 0
+        {
+            materials.insert(m);
+        }
+    }
+
+    let surface_ids: Vec<i64> = model
+        .surfaces()
+        .map(|s| s.id().unwrap_or_default())
+        .collect();
+
+    ModelStats {
+        cell_count: cell_ids.len(),
+        surface_count: surface_ids.len(),
+        cell_id_runs: runs_from_ids(cell_ids),
+        surface_id_runs: runs_from_ids(surface_ids),
+        materials: materials.into_iter().collect(),
+    }
+}
+
+impl BuildReport {
+    /// Assembles the manifest for a completed build. `commit_hash` is passed in
+    /// rather than derived here — discovering the git repository is the
+    /// caller's concern (it anchors on the project directory, not this type).
+    pub fn from_build(
+        config_path: &Path,
+        commit_hash: String,
+        project_manager: &ProjectManager,
+        envelope_structure: &Model,
+        fillers: &[(FillerName, Model)],
+        universe_ids: &HashMap<FillerName, UniverseId>,
+    ) -> Self {
+        let total_cells = envelope_structure.cells().count()
+            + fillers
+                .iter()
+                .map(|(_, m)| m.cells().count())
+                .sum::<usize>();
+        let total_surfaces = envelope_structure.surfaces().count()
+            + fillers
+                .iter()
+                .map(|(_, m)| m.surfaces().count())
+                .sum::<usize>();
+
+        let envelope_entries: Vec<EnvelopeEntry> = project_manager
+            .envelopes_in_config()
+            .map(|env_name| {
+                let filler_name: Option<FillerName> = project_manager
+                    .filler_by_envelope(env_name)
+                    .and_then(|opt| opt.clone());
+
+                let universe_id = filler_name
+                    .as_ref()
+                    .and_then(|f| universe_ids.get(f))
+                    .copied();
+
+                let transform = filler_name.as_ref().and_then(|f| {
+                    project_manager
+                        .transformation(f, env_name)
+                        .ok()
+                        .flatten()
+                        .map(str::to_string)
+                });
+
+                let meta = project_manager
+                    .envelope_metadata(env_name)
+                    .cloned()
+                    .unwrap_or_default();
+                EnvelopeEntry {
+                    envelope_name: env_name.clone(),
+                    filler_name,
+                    universe_id,
+                    transform,
+                    metadata: meta,
+                }
+            })
+            .collect();
+
+        let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
+        let mut filler_envelopes: HashMap<FillerName, Vec<EnvelopeName>> = HashMap::new();
+        for entry in &envelope_entries {
+            if let Some(filler_name) = &entry.filler_name {
+                *filler_envelope_counts
+                    .entry(filler_name.clone())
+                    .or_insert(0) += 1;
+                filler_envelopes
+                    .entry(filler_name.clone())
+                    .or_default()
+                    .push(entry.envelope_name.clone());
+            }
+        }
+
+        let filler_entries: Vec<FillerEntry> = fillers
+            .iter()
+            .filter_map(|(name, model)| {
+                let universe_id = *universe_ids.get(name)?;
+                let envelope_count = *filler_envelope_counts.get(name).unwrap_or(&0);
+                let stats = model_stats(model);
+                Some(FillerEntry {
+                    universe_id,
+                    envelope_count,
+                    cell_count: stats.cell_count,
+                    surface_count: stats.surface_count,
+                    cell_id_runs: stats.cell_id_runs,
+                    surface_id_runs: stats.surface_id_runs,
+                    materials: stats.materials,
+                    envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
+                    metadata: project_manager
+                        .filler_metadata(name)
+                        .cloned()
+                        .unwrap_or_default(),
+                    name: name.clone(),
+                })
+            })
+            .collect();
+
+        BuildReport {
+            schema_version: SCHEMA_VERSION,
+            config_path: config_path.display().to_string(),
+            gitronics_version: env!("CARGO_PKG_VERSION"),
+            commit_hash,
+            date_time: chrono::Utc::now()
+                .format("%Y-%m-%d %H:%M:%S UTC")
+                .to_string(),
+            total_cells,
+            total_surfaces,
+            envelope_entries,
+            filler_entries,
+            materials: project_manager
+                .materials_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+            tallies: project_manager
+                .tallies_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+            transforms: project_manager
+                .transforms_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+            source: project_manager.source_name().map(|n| n.to_string()),
+        }
+    }
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
@@ -254,6 +441,43 @@ mod tests {
             transforms: vec![],
             source: Some("plasma.source".to_string()),
         }
+    }
+
+    // ── Id runs ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn runs_from_ids_coalesces_consecutive_values() {
+        assert_eq!(runs_from_ids(vec![]), Vec::<[i64; 2]>::new());
+        assert_eq!(runs_from_ids(vec![7]), vec![[7, 7]]);
+        assert_eq!(runs_from_ids(vec![1, 2, 3]), vec![[1, 3]]);
+        assert_eq!(
+            runs_from_ids(vec![1, 2, 5, 6, 9]),
+            vec![[1, 2], [5, 6], [9, 9]]
+        );
+    }
+
+    #[test]
+    fn runs_from_ids_sorts_and_deduplicates() {
+        assert_eq!(runs_from_ids(vec![3, 1, 2, 2, 1]), vec![[1, 3]]);
+        assert_eq!(runs_from_ids(vec![-2, -1, 4]), vec![[-2, -1], [4, 4]]);
+    }
+
+    // ── Model statistics ──────────────────────────────────────────────────────
+
+    #[test]
+    fn model_stats_counts_cards_and_collects_materials() {
+        let model = Model::parse(
+            "t\n1 3 -1.0 -1 imp:n=1\n2 0 1 -2 imp:n=1\n3 3 -1.0 2 -3 imp:n=1\n\n\
+             1 SO 5\n2 SO 6\n3 SO 7\n\nM3 1001 1\n",
+        );
+        let stats = model_stats(&model);
+
+        assert_eq!(stats.cell_count, 3);
+        assert_eq!(stats.surface_count, 3);
+        assert_eq!(stats.cell_id_runs, vec![[1, 3]]);
+        assert_eq!(stats.surface_id_runs, vec![[1, 3]]);
+        // Void (material 0) is not a material; 3 appears twice but is distinct.
+        assert_eq!(stats.materials, vec![3]);
     }
 
     // ── HTML shell ────────────────────────────────────────────────────────────

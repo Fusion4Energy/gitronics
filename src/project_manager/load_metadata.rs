@@ -1,6 +1,6 @@
 use super::{Metadata, ProjectManager};
+use crate::error::GitronicsError;
 use crate::types::{EnvelopeName, FillerName, TRANSFORMATIONS_KEY};
-use crate::utils::GitronicsError;
 use indexmap::IndexMap;
 use log::warn;
 use serde_json::Value;
@@ -32,20 +32,23 @@ impl ProjectManager {
         let yaml_content = fs::read_to_string(&metadata_path)
             .map_err(|source| GitronicsError::io_path(&metadata_path, source))?;
 
-        let parse_err =
-            |e: String| GitronicsError::YamlParse(metadata_path.to_string_lossy().to_string(), e);
-
         // Parse the whole file as a free-form, order-preserving map.
         let mut raw: Metadata =
-            serde_saphyr::from_str(&yaml_content).map_err(|e| parse_err(e.to_string()))?;
+            serde_saphyr::from_str(&yaml_content).map_err(|source| GitronicsError::YamlParse {
+                path: metadata_path.to_string_lossy().to_string(),
+                source: Box::new(source),
+            })?;
 
         // Extract the reserved `transformations` key; everything else is
         // arbitrary metadata that we keep as-is.
         let transformations: HashMap<EnvelopeName, Option<String>> =
             match raw.shift_remove(TRANSFORMATIONS_KEY) {
                 Some(value) if !value.is_null() => {
-                    let map: IndexMap<EnvelopeName, Option<String>> =
-                        serde_json::from_value(value).map_err(|e| parse_err(e.to_string()))?;
+                    let map: IndexMap<EnvelopeName, Option<String>> = serde_json::from_value(value)
+                        .map_err(|source| GitronicsError::InvalidTransformations {
+                            filler_name: filler_name.clone(),
+                            source,
+                        })?;
                     map.into_iter().collect()
                 }
                 _ => HashMap::new(),

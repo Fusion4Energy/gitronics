@@ -65,6 +65,8 @@ impl From<&str> for FileName {
     }
 }
 
+/// A filler's file is always named `<filler_name>.mcnp` by convention — the
+/// filler name *is* the file stem — so this conversion is exact, not a lookup.
 impl From<&FillerName> for FileName {
     fn from(filler_name: &FillerName) -> Self {
         Self(filler_name.0.clone())
@@ -110,6 +112,8 @@ impl From<&str> for FillerName {
     }
 }
 
+/// The inverse of `FileName::from(&FillerName)` — see its doc comment. Only
+/// meaningful for a `FileName` that is known to name a filler.
 impl From<&FileName> for FillerName {
     fn from(file_name: &FileName) -> Self {
         Self(file_name.0.clone())
