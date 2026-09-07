@@ -4,49 +4,19 @@
   "gitronics_version": "<gitronics_version>",
   "commit_hash": "<commit_hash>",
   "date_time": "<date_time>",
-  "total_cells": 18,
-  "total_surfaces": 112,
+  "total_cells": 16,
+  "total_surfaces": 107,
   "envelope_entries": [
     {
       "envelope_name": "my_envelope_name_1"
     },
     {
       "envelope_name": "envelope_name_2",
-      "filler_name": "filler_model_2",
-      "universe_id": 125
-    },
-    {
-      "envelope_name": "my_envelope_name_2",
       "filler_name": "filler_model_3",
       "universe_id": 130
     }
   ],
   "filler_entries": [
-    {
-      "name": "filler_model_2",
-      "universe_id": 125,
-      "envelope_count": 1,
-      "cell_count": 2,
-      "surface_count": 5,
-      "cell_id_runs": [
-        [
-          2001,
-          2002
-        ]
-      ],
-      "surface_id_runs": [
-        [
-          2001,
-          2005
-        ]
-      ],
-      "materials": [
-        14
-      ],
-      "envelopes": [
-        "envelope_name_2"
-      ]
-    },
     {
       "name": "filler_model_3",
       "universe_id": 130,
@@ -69,7 +39,7 @@
         14
       ],
       "envelopes": [
-        "my_envelope_name_2"
+        "envelope_name_2"
       ]
     }
   ],

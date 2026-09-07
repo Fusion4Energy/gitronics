@@ -21,9 +21,23 @@ pub struct ModelConfig {
     transformations: Option<Vec<FileName>>,
     materials: Option<Vec<FileName>>,
     tallies: Option<Vec<FileName>>,
-    source: Option<FileName>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_source",
+        skip_serializing_if = "Option::is_none"
+    )]
+    source: Option<Option<FileName>>,
     #[serde(default)]
     envelopes: IndexMap<EnvelopeName, Option<FillerName>>,
+}
+
+fn deserialize_source<'de, Deserializer>(
+    deserializer: Deserializer,
+) -> Result<Option<Option<FileName>>, Deserializer::Error>
+where
+    Deserializer: serde::Deserializer<'de>,
+{
+    Option::<FileName>::deserialize(deserializer).map(Some)
 }
 
 impl ModelConfig {
@@ -165,11 +179,11 @@ impl ModelConfig {
     }
 
     pub fn source(&self) -> Option<&FileName> {
-        self.source.as_ref()
+        self.source.as_ref().and_then(Option::as_ref)
     }
 
     pub fn set_source(&mut self, source: FileName) {
-        self.source = Some(source);
+        self.source = Some(Some(source));
     }
 
     /// Returns the envelope-to-filler mapping.
@@ -224,7 +238,7 @@ envelopes:
             project_roots: Some(vec![PathBuf::from("base_root")]),
             overrides: None,
             envelope_structure: Some(FileName::new("base_structure")),
-            source: Some(FileName::new("base_source")),
+            source: Some(Some(FileName::new("base_source"))),
             materials: Some(vec![FileName::new("base_material")]),
             transformations: None,
             tallies: None,
@@ -234,7 +248,7 @@ envelopes:
             project_roots: None,
             overrides: Some("base".into()),
             envelope_structure: None,
-            source: Some(FileName::new("override_source")),
+            source: Some(Some(FileName::new("override_source"))),
             materials: Some(vec![FileName::new("override_material")]),
             transformations: None,
             tallies: None,
@@ -257,6 +271,58 @@ envelopes:
             envelopes[&EnvelopeName::new("env2")],
             Some(FillerName::new("override_env2"))
         );
+    }
+
+    #[test]
+    fn source_inheritance_distinguishes_omitted_null_and_assigned() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("base.yaml"), "source: base_source\n").unwrap();
+
+        for (source_yaml, expected) in [
+            ("", Some("base_source")),
+            ("source: null\n", None),
+            ("source:\n", None),
+            ("source: replacement\n", Some("replacement")),
+        ] {
+            let config_path = dir.path().join("override.yaml");
+            fs::write(&config_path, format!("overrides: base.yaml\n{source_yaml}")).unwrap();
+
+            let config = ModelConfig::load(&config_path).unwrap();
+
+            assert_eq!(config.source().map(|name| &**name), expected);
+        }
+    }
+
+    #[test]
+    fn cleared_source_stays_cleared_through_override_chain() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("base.yaml"), "source: base_source\n").unwrap();
+        fs::write(
+            dir.path().join("mid.yaml"),
+            "overrides: base.yaml\nsource: null\n",
+        )
+        .unwrap();
+        let top_path = dir.path().join("top.yaml");
+        fs::write(&top_path, "overrides: mid.yaml\n").unwrap();
+
+        assert!(ModelConfig::load(&top_path).unwrap().source().is_none());
+
+        fs::write(&top_path, "overrides: mid.yaml\nsource: replacement\n").unwrap();
+        assert_eq!(
+            ModelConfig::load(&top_path).unwrap().source(),
+            Some(&FileName::new("replacement"))
+        );
+    }
+
+    #[test]
+    fn source_states_survive_yaml_round_trip() {
+        for yaml in ["{}", "source: null", "source: named_source"] {
+            let config: ModelConfig = serde_saphyr::from_str(yaml).unwrap();
+            let serialized = serde_saphyr::to_string(&config).unwrap();
+            let restored: ModelConfig = serde_saphyr::from_str(&serialized).unwrap();
+
+            assert_eq!(restored, config, "source state changed for {yaml}");
+        }
     }
 
     #[test]

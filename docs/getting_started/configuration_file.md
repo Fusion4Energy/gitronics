@@ -79,6 +79,8 @@ Only one source file can be specified, but any number of materials, transformati
 
 This field is a dictionary that maps envelope cell names to filler model file stems.
 If an envelope cell name appears in the dictionary but is not found in the envelope structure file, Gitronics will raise an error.
+This also applies to names assigned `null`. The build stops before writing the assembled model or build reports and lists the unmatched names.
+An envelope present in the structure but omitted from the configuration is left unfilled with a warning; use an explicit `null` assignment to mark it as intentionally empty.
 
 <figure class="wide" markdown="span">
   ![How the envelopes map fills envelope cells](../assets/mapping.svg#only-dark){ width="100%" }
@@ -100,7 +102,15 @@ The overriding rules are as follows:
 
 - The field `project_roots` is not inherited, it must be specified in the current configuration file.
 - The fields `envelope_structure`, `source`, `materials`, `transformations`, and `tallies` are inherited, but they can be overridden in the current configuration file. If the current file defines the field, the parent value is ignored.
+- For `source`, omitting the key inherits the parent's value, `source: null` explicitly removes it, and a file stem replaces it. A cleared source remains cleared in descendants unless they assign a new source.
 - The field `envelopes` is inherited and merged entry-by-entry. The current file can add new envelopes or change specific ones without repeating the full list. If an envelope name is present in both the parent and the current configuration, the current value takes precedence.
+
+For example, to inherit a model without its source cards:
+
+```yaml
+overrides: baseline.yaml
+source: null
+```
 
 !!! tip "Nested inheritance"
     Inheritance chains are allowed but are not considered a good practice. It is simpler and less error-prone to inherit from a single parent configuration file.

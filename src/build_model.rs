@@ -237,15 +237,16 @@ fn add_fill_cards_to_envelopes(
     }
 
     if !missing_envelopes_in_file.is_empty() {
-        warn!(
+        let mut missing_names: Vec<String> = missing_envelopes_in_file
+            .into_iter()
+            .map(|envelope| envelope.to_string())
+            .collect();
+        missing_names.sort();
+        return Err(GitronicsError::ValidationError(format!(
             "The following envelopes were defined in the configuration file but not found in the envelope structure file: {}. \
              Please check that the `$ @env:envelope_name` pattern is satisfied.",
-            missing_envelopes_in_file
-                .into_iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+            missing_names.join(", ")
+        )));
     }
     Ok(())
 }

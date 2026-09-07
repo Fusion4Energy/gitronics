@@ -2,4 +2,4 @@ project_roots: [../reference_model, ./]
 overrides: ../configurations/valid_configuration.yaml
 envelopes:
   my_envelope_name_1:
-  my_envelope_name_2: filler_model_3
+  envelope_name_2: filler_model_3

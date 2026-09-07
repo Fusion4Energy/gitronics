@@ -35,6 +35,32 @@ fn test_build_example_override() {
 }
 
 #[test]
+fn test_build_override_clears_inherited_source() {
+    let dir = tempdir().unwrap();
+    copy_dir(&PathBuf::from("example_project"), dir.path()).unwrap();
+    fs::remove_file(
+        dir.path()
+            .join("reference_model/data_cards/volumetric_source.source"),
+    )
+    .unwrap();
+    let config = dir.path().join("configurations/without_source.yaml");
+    fs::write(
+        &config,
+        "overrides: valid_configuration.yaml\nsource: null\n",
+    )
+    .unwrap();
+    let output = dir.path().join("out");
+
+    build_model(&config, &output).unwrap();
+
+    let report: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(output.join("build_report.json")).unwrap())
+            .unwrap();
+    assert!(report.get("source").is_none());
+    assert!(output.join("assembled.mcnp").exists());
+}
+
+#[test]
 fn test_build_nonexistent_config() {
     let output_dir = tempdir().unwrap();
     let config_path = PathBuf::from("example_project/configurations/does_not_exist.yaml");

@@ -16,10 +16,9 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-/// An envelope named in the configuration but absent from the envelope
-/// structure is a silent no-op in the assembled model, so the build warns.
+/// An envelope omitted from the configuration remains unfilled with a warning.
 #[test]
-fn envelopes_in_config_that_dont_exist_are_warned_about() {
+fn envelopes_omitted_from_config_are_warned_about() {
     let mut logger = Logger::start();
     let dir = tempdir().unwrap();
     copy_dir(&PathBuf::from("example_project/"), dir.path()).unwrap();
@@ -36,7 +35,6 @@ transformations: [my_transform]
 tallies: [fine_mesh]
 envelopes:
   my_envelope_name_1: filler_model_1
-  wrong_envelope_name: filler_model_2
 ",
     )
     .unwrap();
@@ -47,9 +45,9 @@ envelopes:
     )
     .unwrap();
 
-    let expected = "The following envelopes were defined in the configuration file but not found in the envelope structure file";
+    let expected = "The envelope `envelope_name_2` is not considered in the configuration file";
     assert!(
         logger.any(|record| record.level() == Level::Warn && record.args().contains(expected)),
-        "no warning naming the missing envelope was logged"
+        "no warning naming the omitted envelope was logged"
     );
 }
