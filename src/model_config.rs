@@ -77,6 +77,8 @@ impl ModelConfig {
         } else {
             current_dir()?.join(config_path)
         };
+        let config_path = dunce::canonicalize(&config_path)
+            .map_err(|source| GitronicsError::io_path(&config_path, source))?;
         Self::load_inner(&config_path, &mut HashSet::new())
     }
 
@@ -103,8 +105,7 @@ impl ModelConfig {
                 .unwrap_or(Path::new("."))
                 .join(base_path)
         };
-        let base_path = base_path
-            .canonicalize()
+        let base_path = dunce::canonicalize(&base_path)
             .map_err(|source| GitronicsError::io_path(&base_path, source))?;
         // Resolve the base config recursively so the full chain is applied.
         let base = Self::load_inner(&base_path, visited)?;
