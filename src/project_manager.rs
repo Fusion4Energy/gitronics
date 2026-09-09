@@ -16,16 +16,20 @@ mod load_project_files;
 /// their (possibly structured) values. Key order follows the source file.
 pub type Metadata = IndexMap<String, Value>;
 
+#[derive(Debug, Default)]
+struct FillerRecord {
+    transformations: HashMap<EnvelopeName, Option<String>>,
+    /// Everything in the `.metadata` file except `transformations`.
+    metadata: Metadata,
+}
+
 /// Manages a gitronics project, providing access to model files and configurations.
 #[derive(Debug)]
 pub struct ProjectManager {
     model_config: ModelConfig,
     output_path: PathBuf,
     file_paths: HashMap<FileName, PathBuf>,
-    metadata: HashMap<FillerName, HashMap<EnvelopeName, Option<String>>>,
-    /// Arbitrary, project-defined metadata for each filler (everything in the
-    /// `.metadata` file except the reserved `transformations` key).
-    filler_metadata: HashMap<FillerName, Metadata>,
+    filler_data: HashMap<FillerName, FillerRecord>,
     /// Arbitrary, project-defined metadata for each envelope, from the
     /// envelope-structure `.metadata` sidecar (best-effort; empty when absent).
     envelope_metadata: HashMap<EnvelopeName, Metadata>,
@@ -46,8 +50,7 @@ impl ProjectManager {
             file_paths,
             output_path,
             model_config,
-            metadata: HashMap::new(),
-            filler_metadata: HashMap::new(),
+            filler_data: HashMap::new(),
             envelope_metadata: HashMap::new(),
         })
     }
@@ -88,19 +91,17 @@ impl ProjectManager {
         filler_name: &FillerName,
         envelope_name: &EnvelopeName,
     ) -> Result<Option<&str>, GitronicsError> {
-        let filler_metadata = self
-            .metadata
+        let record = self
+            .filler_data
             .get(filler_name)
             .ok_or_else(|| GitronicsError::MetadataNotFound(filler_name.into()))?;
-        if !filler_metadata.contains_key(envelope_name) {
-            return Err(GitronicsError::TransformationNotFound {
+        match record.transformations.get(envelope_name) {
+            None => Err(GitronicsError::TransformationNotFound {
                 filler_name: filler_name.clone(),
                 envelope_name: envelope_name.clone(),
-            });
+            }),
+            Some(transform) => Ok(transform.as_deref()),
         }
-        Ok(filler_metadata
-            .get(envelope_name)
-            .and_then(|opt| opt.as_deref()))
     }
 
     /// Returns an iterator over the envelope names defined in the configuration.
@@ -130,7 +131,9 @@ impl ProjectManager {
 
     /// Returns the arbitrary, project-defined metadata of a filler, if loaded.
     pub fn filler_metadata(&self, filler_name: &FillerName) -> Option<&Metadata> {
-        self.filler_metadata.get(filler_name)
+        self.filler_data
+            .get(filler_name)
+            .map(|record| &record.metadata)
     }
 
     /// Returns the arbitrary, project-defined metadata of an envelope, if loaded.

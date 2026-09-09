@@ -1,4 +1,4 @@
-use super::{Metadata, ProjectManager};
+use super::{FillerRecord, Metadata, ProjectManager};
 use crate::error::GitronicsError;
 use crate::types::{EnvelopeName, FillerName, TRANSFORMATIONS_KEY};
 use indexmap::IndexMap;
@@ -54,8 +54,13 @@ impl ProjectManager {
                 _ => HashMap::new(),
             };
 
-        self.metadata.insert(filler_name.clone(), transformations);
-        self.filler_metadata.insert(filler_name.clone(), raw);
+        self.filler_data.insert(
+            filler_name.clone(),
+            FillerRecord {
+                transformations,
+                metadata: raw,
+            },
+        );
         Ok(())
     }
 
