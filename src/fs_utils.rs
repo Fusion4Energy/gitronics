@@ -13,6 +13,12 @@ use walkdir::WalkDir;
 
 const VALID_SUFFIXES: &[&str] = &["yaml", "yml", "mcnp", "mat", "tally", "transform", "source"];
 
+/// The parent directory of `path`, or `.` if it has none (a bare filename or
+/// the filesystem root).
+pub(crate) fn parent_or_cwd(path: &Path) -> &Path {
+    path.parent().unwrap_or(Path::new("."))
+}
+
 /// Recursively discovers and indexes all project files by their stem names.
 ///
 /// Walks through the given directory tree and collects files with valid suffixes

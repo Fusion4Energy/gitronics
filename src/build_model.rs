@@ -1,6 +1,6 @@
 use crate::build_report::BuildReport;
 use crate::error::GitronicsError;
-use crate::fs_utils::write_output_gitignore;
+use crate::fs_utils::{parent_or_cwd, write_output_gitignore};
 use crate::project_manager::ProjectManager;
 use crate::runtime::init_thread_pool;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
@@ -138,7 +138,7 @@ static ENVELOPE_RE: LazyLock<Regex> =
 /// The directory that contains the configuration file — the anchor for git
 /// repository discovery (the project, not the process's working directory).
 fn project_dir(config_path: &Path) -> &Path {
-    config_path.parent().unwrap_or(Path::new("."))
+    parent_or_cwd(config_path)
 }
 
 /// The universe id declared by a filler's first cell (`u=`), if any.

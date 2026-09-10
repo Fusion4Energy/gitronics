@@ -35,7 +35,7 @@ impl ProjectManager {
         // Parse the whole file as a free-form, order-preserving map.
         let mut raw: Metadata =
             serde_saphyr::from_str(&yaml_content).map_err(|source| GitronicsError::YamlParse {
-                path: metadata_path.to_string_lossy().to_string(),
+                path: metadata_path.display().to_string(),
                 source: Box::new(source),
             })?;
 

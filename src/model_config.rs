@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::GitronicsError;
+use crate::fs_utils::parent_or_cwd;
 use crate::types::{EnvelopeName, FileName, FillerName};
 
 /// Configuration for a neutronics model, typically loaded from a YAML file.
@@ -59,7 +60,7 @@ impl ModelConfig {
             fs::read_to_string(&path).map_err(|source| GitronicsError::io_path(&path, source))?;
         let mut config: ModelConfig =
             serde_saphyr::from_str(&yaml_content).map_err(|source| GitronicsError::YamlParse {
-                path: path.as_ref().to_string_lossy().to_string(),
+                path: path.as_ref().display().to_string(),
                 source: Box::new(source),
             })?;
         config.resolve_project_roots_relative_to(path.as_ref());
@@ -77,8 +78,9 @@ impl ModelConfig {
         } else {
             current_dir()?.join(config_path)
         };
-        let config_path = dunce::canonicalize(&config_path)
-            .map_err(|source| GitronicsError::io_path(&config_path, source))?;
+        let config_path = dunce::canonicalize(&config_path).map_err(|source| {
+            GitronicsError::io_path(&config_path, source)
+        })?;
         Self::load_inner(&config_path, &mut HashSet::new())
     }
 
@@ -93,20 +95,17 @@ impl ModelConfig {
         let mut config = Self::from_file(&config_path)?;
         // If there is no `overrides` key, apply default project root and return.
         let Some(base_path) = config.overrides() else {
-            let config_dir = config_path.parent().unwrap_or(Path::new("."));
-            config.set_default_project_root(config_dir);
+            config.set_default_project_root(parent_or_cwd(&config_path));
             return Ok(config);
         };
         let base_path = if base_path.is_absolute() {
             base_path.to_path_buf()
         } else {
-            config_path
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join(base_path)
+            parent_or_cwd(&config_path).join(base_path)
         };
-        let base_path = dunce::canonicalize(&base_path)
-            .map_err(|source| GitronicsError::io_path(&base_path, source))?;
+        let base_path = dunce::canonicalize(&base_path).map_err(|source| {
+            GitronicsError::io_path(&base_path, source)
+        })?;
         // Resolve the base config recursively so the full chain is applied.
         let base = Self::load_inner(&base_path, visited)?;
         Ok(config.merge(base))
@@ -135,7 +134,7 @@ impl ModelConfig {
         let Some(roots) = &self.project_roots else {
             return; // leave None so a base config's project_roots can be used during merge
         };
-        let config_dir = config_path.parent().unwrap_or(Path::new("."));
+        let config_dir = parent_or_cwd(config_path);
         let resolved = roots
             .iter()
             .map(|root| {
@@ -159,8 +158,8 @@ impl ModelConfig {
         self.project_roots.as_deref().unwrap_or_default()
     }
 
-    pub fn overrides(&self) -> Option<&PathBuf> {
-        self.overrides.as_ref()
+    pub fn overrides(&self) -> Option<&Path> {
+        self.overrides.as_deref()
     }
 
     pub fn envelope_structure(&self) -> Option<&FileName> {

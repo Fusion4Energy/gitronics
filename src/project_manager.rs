@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::create_dir_all;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod load_metadata;
 mod load_project_files;
@@ -37,14 +37,11 @@ pub struct ProjectManager {
 
 impl ProjectManager {
     /// Creates a new `ProjectManager` for the given output directory.
-    pub fn new<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
-        config_path: P,
-        output_path: Q,
-    ) -> Result<Self, GitronicsError> {
-        let output_path = output_path.as_ref().to_path_buf();
+    pub fn new(config_path: &Path, output_path: &Path) -> Result<Self, GitronicsError> {
+        let output_path = output_path.to_path_buf();
         create_dir_all(&output_path)
             .map_err(|source| GitronicsError::io_path(&output_path, source))?;
-        let model_config = ModelConfig::load(&config_path)?;
+        let model_config = ModelConfig::load(config_path)?;
         let file_paths = index_project_files(&model_config)?;
         Ok(Self {
             file_paths,
@@ -56,23 +53,24 @@ impl ProjectManager {
     }
 
     /// Retrieves the full path for a project file by its stem name.
-    pub fn file_path(&self, file_name: &FileName) -> Result<&PathBuf, GitronicsError> {
+    pub fn file_path(&self, file_name: &FileName) -> Result<&Path, GitronicsError> {
         self.file_paths
             .get(file_name)
+            .map(PathBuf::as_path)
             .ok_or_else(|| GitronicsError::FileNotFound {
                 file_name: file_name.clone(),
                 project_root: self
                     .model_config
                     .project_roots()
                     .iter()
-                    .map(|p| p.to_string_lossy().to_string())
+                    .map(|p| p.display().to_string())
                     .collect::<Vec<_>>()
                     .join(", "),
             })
     }
 
     /// Returns the configured output path.
-    pub fn output_path(&self) -> &PathBuf {
+    pub fn output_path(&self) -> &Path {
         &self.output_path
     }
 
@@ -157,10 +155,9 @@ fn index_project_files(
                     return Err(GitronicsError::DuplicateFileName(entry.key().clone()));
                 }
                 Entry::Vacant(entry) => {
-                    entry.insert(
-                        dunce::canonicalize(&path)
-                            .map_err(|source| GitronicsError::io_path(&path, source))?,
-                    );
+                    entry.insert(dunce::canonicalize(&path).map_err(|source| {
+                        GitronicsError::io_path(&path, source)
+                    })?);
                 }
             }
         }
