@@ -20,7 +20,8 @@ pub fn parse_model_file(path: &Path, file_name: &FileName) -> Result<Model, Gitr
     {
         return Err(GitronicsError::FailedToLoadMCNPFile {
             file_name: file_name.clone(),
-            error: diag.message.clone(),
+            line: diag.line(&text),
+            message: diag.message.clone(),
         });
     }
     Ok(model)
@@ -46,10 +47,7 @@ pub fn read_data_cards_text(path: &Path, file_name: &FileName) -> Result<String,
         kept.push(line);
     }
     if kept.is_empty() {
-        return Err(GitronicsError::FailedToLoadDataCardsFile {
-            file_name: file_name.clone(),
-            error: "no data cards found before the first blank line".to_string(),
-        });
+        return Err(GitronicsError::FailedToLoadDataCardsFile(file_name.clone()));
     }
     Ok(kept.join("\n"))
 }

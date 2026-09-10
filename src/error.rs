@@ -1,10 +1,41 @@
 //! The crate-wide error type.
 
 use crate::types::{EnvelopeName, FileName, FillerName};
+use migjorn::{IdKind, Problem};
 use path_clean::PathClean;
+use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+fn join_lines<T: fmt::Display>(items: &[T]) -> String {
+    items
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A [`migjorn::Collision`] with its model positions already resolved to the
+/// names `build_model::merge_labeled` was given for them, so a display site
+/// never has to index back into a side table to say which component collided.
+#[derive(Debug)]
+pub struct MergeConflict {
+    pub kind: IdKind,
+    pub id: i64,
+    pub models: Vec<String>,
+}
+
+fn format_merge_conflicts(conflicts: &[MergeConflict]) -> String {
+    conflicts
+        .iter()
+        .map(|c| {
+            let defined_by = c.models.join(" and ");
+            format!("duplicate {} id {} defined by {defined_by}", c.kind, c.id)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 #[derive(Debug, Error)]
 pub enum GitronicsError {
@@ -42,11 +73,17 @@ pub enum GitronicsError {
         source: serde_json::Error,
     },
 
-    #[error("Failed to load MCNP file: `{file_name}`.\n{error}")]
-    FailedToLoadMCNPFile { file_name: FileName, error: String },
+    #[error("Failed to load MCNP file `{file_name}` at line {line}:\n{message}")]
+    FailedToLoadMCNPFile {
+        file_name: FileName,
+        line: usize,
+        message: String,
+    },
 
-    #[error("Failed to load data cards file: `{file_name}`.\n{error}")]
-    FailedToLoadDataCardsFile { file_name: FileName, error: String },
+    #[error(
+        "Failed to load data cards file `{0}`: no data cards found before the first blank line"
+    )]
+    FailedToLoadDataCardsFile(FileName),
 
     #[error("Duplicate file name `{0}` found")]
     DuplicateFileName(FileName),
@@ -92,9 +129,13 @@ pub enum GitronicsError {
     InvalidFillCard(String, String),
 
     #[error(
-        "ID collisions between components (each id must be unique across the envelope structure and all fillers):\n{0}"
+        "ID collisions between components (each id must be unique across the envelope structure and all fillers):\n{}",
+        format_merge_conflicts(.0)
     )]
-    MergeConflicts(String),
+    MergeConflicts(Vec<MergeConflict>),
+
+    #[error("The assembled model has invalid references:\n{}", join_lines(.0))]
+    InvalidModel(Vec<Problem>),
 
     #[error("{0}")]
     ValidationError(String),

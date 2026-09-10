@@ -155,9 +155,10 @@ fn index_project_files(
                     return Err(GitronicsError::DuplicateFileName(entry.key().clone()));
                 }
                 Entry::Vacant(entry) => {
-                    entry.insert(dunce::canonicalize(&path).map_err(|source| {
-                        GitronicsError::io_path(&path, source)
-                    })?);
+                    entry.insert(
+                        dunce::canonicalize(&path)
+                            .map_err(|source| GitronicsError::io_path(&path, source))?,
+                    );
                 }
             }
         }

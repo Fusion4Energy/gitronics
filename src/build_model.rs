@@ -1,5 +1,5 @@
 use crate::build_report::BuildReport;
-use crate::error::GitronicsError;
+use crate::error::{GitronicsError, MergeConflict};
 use crate::fs_utils::{parent_or_cwd, write_output_gitignore};
 use crate::project_manager::ProjectManager;
 use crate::runtime::init_thread_pool;
@@ -72,9 +72,9 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     // `into_iter` so each filler's original model — which still carries the data
     // cards `clear_data_cards` drops — is freed as soon as its cleared clone
     // exists, instead of every original staying alive alongside every clone.
-    let mut to_merge: Vec<Model> = fillers
+    let mut to_merge: Vec<(String, Model)> = fillers
         .into_iter()
-        .map(|(_, model)| model.clear_data_cards())
+        .map(|(name, model)| (format!("filler `{name}`"), model.clear_data_cards()))
         .collect();
 
     let data_text = [transforms, materials, tallies, source]
@@ -89,21 +89,25 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
         // of the data block and indexes their material/transform ids, which is
         // exactly what re-parsing the whole assembled source used to buy, for the
         // size of the data cards rather than the size of the whole model.
-        to_merge.push(Model::parse(&format!(
-            "gitronics data cards\n\n\n{data_text}\n"
-        )));
+        to_merge.push((
+            "the configured data cards".to_string(),
+            Model::parse(&format!("gitronics data cards\n\n\n{data_text}\n")),
+        ));
     }
 
-    envelope_structure
-        .merge(to_merge)
-        .map_err(|conflicts| GitronicsError::MergeConflicts(conflicts.join("\n")))?;
+    merge_labeled(
+        &mut envelope_structure,
+        "the envelope structure".to_string(),
+        to_merge,
+    )
+    .map_err(GitronicsError::MergeConflicts)?;
 
     // Validate the assembled model. `merge` indexed every card it absorbed, so
     // this reads the same ids a re-parse would have built.
     info!("Performing validation checks on the assembled model");
     let problems = envelope_structure.validate();
     if !problems.is_empty() {
-        return Err(GitronicsError::ValidationError(problems.join("\n")));
+        return Err(GitronicsError::InvalidModel(problems));
     }
 
     // Write the assembled model with the provenance banner.
@@ -130,6 +134,37 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
         assembled_path.display()
     );
     Ok(())
+}
+
+/// `Model::merge`, but reporting which labeled component a collision came
+/// from instead of its position in `[self] ++ others`. `self_label` fills the
+/// slot `merge` always assigns `self` (index 0); each of `others`' labels
+/// follows in order, matching `merge`'s own documented convention — so a
+/// caller only has to build one `(label, model)` list instead of a model list
+/// and a name list kept in lockstep by hand.
+fn merge_labeled(
+    model: &mut Model,
+    self_label: String,
+    others: Vec<(String, Model)>,
+) -> Result<(), Vec<MergeConflict>> {
+    let mut labels = Vec::with_capacity(others.len() + 1);
+    labels.push(self_label);
+    let mut models = Vec::with_capacity(others.len());
+    for (label, other) in others {
+        labels.push(label);
+        models.push(other);
+    }
+
+    model.merge(models).map_err(|collisions| {
+        collisions
+            .into_iter()
+            .map(|c| MergeConflict {
+                kind: c.kind,
+                id: c.id,
+                models: c.models.iter().map(|&i| labels[i].clone()).collect(),
+            })
+            .collect()
+    })
 }
 
 static ENVELOPE_RE: LazyLock<Regex> =

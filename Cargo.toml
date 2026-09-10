@@ -22,7 +22,7 @@ pyo3 = { version = "0.23", features = [
     "abi3-py39",
     "generate-import-lib",
 ] }
-migjorn = { version = "0.3.8" }
+migjorn = { version = "0.3.10" }
 walkdir = "2.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-saphyr = "0.0.26"
