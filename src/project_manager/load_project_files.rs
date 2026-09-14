@@ -31,7 +31,7 @@ impl ProjectManager {
     /// Loads all filler models referenced by the configuration, paired with
     /// their names. Fillers are deduplicated (a filler used by several envelopes
     /// is loaded once) and parsed in parallel using rayon.
-    pub fn load_fillers(&self) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
+    fn load_fillers(&self) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
         // Filler names from the config, ordered and deduplicated.
         let mut filler_names: Vec<&FillerName> =
             self.model_config.envelopes().values().flatten().collect();

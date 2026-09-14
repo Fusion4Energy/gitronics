@@ -216,23 +216,16 @@ fn add_fill_cards_to_envelopes(
     let mut missing_envelopes_in_file: HashSet<EnvelopeName> =
         project_manager.envelopes_in_config().cloned().collect();
 
-    // Collect cell slots up front: FILL insertion is a token splice that leaves
-    // slots stable, so we can read then mutate by the same slot.
-    let cell_slots: Vec<u32> = envelope_structure.cells().map(|c| c.slot()).collect();
-
-    for slot in cell_slots {
-        let Some(view) = envelope_structure.cell_at(slot) else {
-            continue;
-        };
-        let original_text = view.text().to_owned();
+    envelope_structure.try_for_each_cell_mut(|cell| -> Result<(), GitronicsError> {
+        let original_text = cell.view().text();
         let Some(caps) = ENVELOPE_RE.captures(&original_text) else {
-            continue;
+            return Ok(());
         };
         let envelope_name =
             EnvelopeName::new(caps.get(1).map(|m| m.as_str()).ok_or_else(|| {
                 GitronicsError::FailedToExtractEnvelopeName(
                     ENVELOPE_RE.to_string(),
-                    original_text.clone(),
+                    original_text.to_string(),
                 )
             })?);
 
@@ -242,7 +235,7 @@ fn add_fill_cards_to_envelopes(
                  It is better to explicitly set it as `{envelope_name}: null` if you want the \
                  envelope to not be filled with any model."
             );
-            continue;
+            return Ok(());
         };
 
         // We found the envelope in the file.
@@ -250,7 +243,7 @@ fn add_fill_cards_to_envelopes(
 
         // Envelope explicitly set to null in config: leave it unfilled.
         let Some(filler_name) = env_config.as_ref() else {
-            continue;
+            return Ok(());
         };
 
         let universe_id = universe_ids
@@ -266,10 +259,12 @@ fn add_fill_cards_to_envelopes(
             format!("fill={universe_id} {transform}")
         };
 
-        envelope_structure
+        let slot = cell.slot();
+        cell.model_mut()
             .add_cell_param(slot, fill_card_text.trim())
             .map_err(|e| GitronicsError::InvalidFillCard(fill_card_text, e.to_string()))?;
-    }
+        Ok(())
+    })?;
 
     if !missing_envelopes_in_file.is_empty() {
         let mut missing_names: Vec<String> = missing_envelopes_in_file

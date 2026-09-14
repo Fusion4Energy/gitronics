@@ -146,17 +146,11 @@ fn replace_fills_with_placeholders(
     let mut envelopes_metadata: IndexMap<EnvelopeName, Option<FillerName>> = IndexMap::new();
     let mut fillers_metadata: IndexMap<FillerName, FillerMetadata> = IndexMap::new();
 
-    // Snapshot the cells and their fills first; edits (parameter removal + comment
-    // insertion) are token splices that keep slots stable.
-    let placements: Vec<(u32, i64, migjorn::Fill)> = envelope_structure
-        .cells()
-        .filter_map(|cell| {
-            let fill = cell.fill()?;
-            Some((cell.slot(), cell.id().unwrap_or_default(), fill))
-        })
-        .collect();
-
-    for (slot, cell_id, fill) in placements {
+    envelope_structure.try_for_each_cell_mut(|cell| -> Result<(), GitronicsError> {
+        let Some(fill) = cell.view().fill() else {
+            return Ok(());
+        };
+        let cell_id = cell.view().id().unwrap_or_default();
         let filler_name = FillerName::new(format!("universe_{}", fill.universe));
         let envelope_name = EnvelopeName::new(format!("envelope_{cell_id}"));
         // `Fill::transform` is the parenthesised transform exactly as written —
@@ -181,17 +175,19 @@ fn replace_fills_with_placeholders(
             .get_or_insert_with(IndexMap::new)
             .insert(envelope_name, transform);
 
-        envelope_structure
+        let slot = cell.slot();
+        cell.model_mut()
             .remove_cell_param(slot, "fill")
             .map_err(|e| {
                 GitronicsError::ValidationError(format!("Could not remove FILL card: {e}"))
             })?;
-        envelope_structure
+        cell.model_mut()
             .append_cell_comment(slot, &format!("@env:envelope_{cell_id}"))
             .map_err(|e| {
                 GitronicsError::ValidationError(format!("Could not add envelope placeholder: {e}"))
             })?;
-    }
+        Ok(())
+    })?;
 
     Ok((fillers_metadata, envelopes_metadata))
 }
