@@ -20,6 +20,11 @@
     const fillers = DATA.filler_entries || [];
     const fillerByName = {};
     fillers.forEach((f) => { fillerByName[f.name] = f; });
+    // Synthetic pseudo-filler carrying the envelope structure file's own exact
+    // id runs, so the ID map can plot them alongside the fillers' ids.
+    const envelopeStructure = DATA.envelope_structure
+        ? Object.assign({ name: "Envelope structure" }, DATA.envelope_structure)
+        : null;
 
     // ── Free-form metadata helpers ─────────────────────────────────────────
     // Metadata keys are project-defined and arbitrary; discover them from data.
@@ -651,7 +656,7 @@
         root.appendChild(el("div", { class: "card" }, [
             el("div", { class: "card-head" }, [el("h2", { text: "Card-ID memory map" }),
             el("span", { class: "spring" }),
-            el("span", { class: "muted count-note", text: "Exact id positions, colored by universe. Scroll to zoom, drag to pan; zoom in to see every individual id." })]),
+            el("span", { class: "muted count-note", text: "Exact id positions, colored by universe (envelope structure in grey). Scroll to zoom, drag to pan; zoom in to see every individual id." })]),
             body
         ]));
         body.appendChild(zoomLane("Cell ids", "cell_id_runs"));
@@ -659,11 +664,15 @@
     };
 
     function zoomLane(title, key) {
-        // Flatten every filler's runs into disjoint segments over the id axis.
+        // Flatten every filler's runs, plus the envelope structure's own runs,
+        // into disjoint segments over the id axis.
         const segs = [];
         fillers.forEach((f) => {
             (f[key] || []).forEach((r) => { segs.push({ s: r[0], e: r[1], f: f }); });
         });
+        if (envelopeStructure) {
+            (envelopeStructure[key] || []).forEach((r) => { segs.push({ s: r[0], e: r[1], f: envelopeStructure, isEnv: true }); });
+        }
         segs.sort((a, b) => { return a.s - b.s; });
 
         const wrap = el("div", { class: "idmap-lane" });
@@ -684,8 +693,9 @@
 
         const canvas = el("canvas", { class: "idmap-canvas" });
         const readout = el("span", { class: "count-note mono" });
+        const laneTitle = `${title} · ${fillers.length} fillers${envelopeStructure ? " + envelope structure" : ""}`;
         const controls = el("div", { class: "idmap-controls" }, [
-            el("div", { class: "lane-title", text: `${title  } · ${  fillers.length  } fillers` }),
+            el("div", { class: "lane-title", text: laneTitle }),
             el("span", { class: "spring" }),
             el("button", { class: "btn ghost", title: "Zoom out", text: "−", onclick: () => { zoomAt(0.5, 1.6); } }),
             el("button", { class: "btn ghost", title: "Zoom in", text: "+", onclick: () => { zoomAt(0.5, 0.625); } }),
@@ -743,7 +753,7 @@
                 const x0 = Math.max(0, X(sg.s));
                 const x1 = Math.min(W, X(sg.e + 1));
                 if (x1 <= x0) continue;
-                ctx.fillStyle = uColor(sg.f.universe_id);
+                ctx.fillStyle = sg.isEnv ? cText3 : uColor(sg.f.universe_id);
                 ctx.fillRect(x0, laneTop, Math.max(1, x1 - x0), laneH);
             }
 
@@ -815,9 +825,9 @@
             hoverId = id;
             const seg = segAt(id);
             if (seg) {
-                showTip(`<b>${  esc(seg.f.name)  }</b><br>id ${  fmt(id)  } · u${  seg.f.universe_id 
+                showTip(`<b>${  esc(seg.f.name)  }</b><br>id ${  fmt(id)  }${  seg.isEnv ? "" : ` · u${  seg.f.universe_id}`
                     }<br>run ${  fmt(seg.s)  }–${  fmt(seg.e)  } (${  fmt(seg.e - seg.s + 1)  } ids)`, e.clientX, e.clientY);
-                canvas.style.cursor = "pointer";
+                canvas.style.cursor = seg.isEnv ? "default" : "pointer";
             } else { hideTip(); canvas.style.cursor = "grab"; }
             schedule();
         });
@@ -826,7 +836,7 @@
             if (!moved) {
                 const rect = canvas.getBoundingClientRect();
                 const seg = segAt(Math.floor(idAtPx(e.clientX - rect.left, canvas.clientWidth)));
-                if (seg) { hideTip(); openFiller(seg.f.name); }
+                if (seg && !seg.isEnv) { hideTip(); openFiller(seg.f.name); }
             }
         });
         canvas.addEventListener("pointerleave", () => { hoverId = null; dragging = false; hideTip(); schedule(); });

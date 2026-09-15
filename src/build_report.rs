@@ -64,6 +64,20 @@ pub struct FillerEntry {
     pub metadata: Metadata,
 }
 
+/// Aggregate statistics for the envelope structure model itself (as opposed to
+/// the per-filler entries in [`FillerEntry`]).
+#[derive(Debug, Serialize)]
+pub struct EnvelopeStructureStats {
+    pub cell_count: usize,
+    pub surface_count: usize,
+    /// The exact cell ids used by the envelope structure file, run-length
+    /// encoded as inclusive `[start, end]` runs (sorted).
+    pub cell_id_runs: Vec<[i64; 2]>,
+    /// The exact surface ids used by the envelope structure file, run-length
+    /// encoded as inclusive `[start, end]`.
+    pub surface_id_runs: Vec<[i64; 2]>,
+}
+
 /// The complete build-report manifest.
 #[derive(Debug, Serialize)]
 pub struct BuildReport {
@@ -76,6 +90,7 @@ pub struct BuildReport {
     pub total_cells: usize,
     /// Total surfaces in the assembled model.
     pub total_surfaces: usize,
+    pub envelope_structure: EnvelopeStructureStats,
     pub envelope_entries: Vec<EnvelopeEntry>,
     pub filler_entries: Vec<FillerEntry>,
     pub materials: Vec<String>,
@@ -154,12 +169,13 @@ impl BuildReport {
         fillers: &[(FillerName, Model)],
         universe_ids: &HashMap<FillerName, UniverseId>,
     ) -> Self {
-        let total_cells = envelope_structure.cells().count()
+        let envelope_stats = model_stats(envelope_structure);
+        let total_cells = envelope_stats.cell_count
             + fillers
                 .iter()
                 .map(|(_, m)| m.cells().count())
                 .sum::<usize>();
-        let total_surfaces = envelope_structure.surfaces().count()
+        let total_surfaces = envelope_stats.surface_count
             + fillers
                 .iter()
                 .map(|(_, m)| m.surfaces().count())
@@ -247,6 +263,12 @@ impl BuildReport {
                 .to_string(),
             total_cells,
             total_surfaces,
+            envelope_structure: EnvelopeStructureStats {
+                cell_count: envelope_stats.cell_count,
+                surface_count: envelope_stats.surface_count,
+                cell_id_runs: envelope_stats.cell_id_runs,
+                surface_id_runs: envelope_stats.surface_id_runs,
+            },
             envelope_entries,
             filler_entries,
             materials: project_manager
@@ -394,6 +416,12 @@ mod tests {
             date_time: "2026-01-01 00:00:00 UTC".to_string(),
             total_cells: 500,
             total_surfaces: 800,
+            envelope_structure: EnvelopeStructureStats {
+                cell_count: 380,
+                surface_count: 600,
+                cell_id_runs: vec![[1, 379], [500, 500]],
+                surface_id_runs: vec![[1, 599]],
+            },
             envelope_entries: vec![
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_a"),

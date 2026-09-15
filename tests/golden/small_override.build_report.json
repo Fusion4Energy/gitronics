@@ -6,6 +6,22 @@
   "date_time": "<date_time>",
   "total_cells": 16,
   "total_surfaces": 107,
+  "envelope_structure": {
+    "cell_count": 14,
+    "surface_count": 102,
+    "cell_id_runs": [
+      [
+        1,
+        14
+      ]
+    ],
+    "surface_id_runs": [
+      [
+        1,
+        102
+      ]
+    ]
+  },
   "envelope_entries": [
     {
       "envelope_name": "my_envelope_name_1"

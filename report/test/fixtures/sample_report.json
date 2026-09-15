@@ -6,6 +6,26 @@
   "date_time": "2026-01-01 00:00:00 UTC",
   "total_cells": 500,
   "total_surfaces": 800,
+  "envelope_structure": {
+    "cell_count": 380,
+    "surface_count": 600,
+    "cell_id_runs": [
+      [
+        1,
+        379
+      ],
+      [
+        500,
+        500
+      ]
+    ],
+    "surface_id_runs": [
+      [
+        1,
+        599
+      ]
+    ]
+  },
   "envelope_entries": [
     {
       "envelope_name": "env_a",
