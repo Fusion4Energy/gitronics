@@ -1,6 +1,6 @@
 /* ============================================================================
    gitronics build report — interactive viewer
-   Vanilla JS, zero dependencies, fully offline. Hydrates the UI from the
+    Vanilla JS with vendored jsdiff, fully offline. Hydrates the UI from the
    JSON manifest embedded in <script id="report-data">.
    All user-derived strings are inserted via textContent → no HTML injection.
    ========================================================================== */
@@ -144,6 +144,23 @@
         return details;
     }
     function inputFor(name, role = "filler") { return inputs.find((input) => input.name === name && input.role === role); }
+    function groupDataCards(cards) {
+        const groups = new Map();
+        for (const entry of cards) {
+            const match = /^tallies$/i.test(entry.category)
+                ? /^\*?(?:FMESH|FC|FM|FT|FQ|FS|FU|DE|DF|SD|TF|EM|TM|CM|F|E|T|C)(\d+)(?::[a-z,]+)?$/i.exec(entry.name) : null;
+            const tallyId = match && Number(match[1]) > 0 ? Number(match[1]) : null;
+            const key = tallyId == null ? JSON.stringify([entry.category, entry.name]) : `tally:${tallyId}`;
+            if (!groups.has(key)) groups.set(key, { key, tallyId, name: tallyId == null ? entry.name : `Tally ${tallyId}`, category: entry.category, cards: [] });
+            groups.get(key).cards.push(entry);
+        }
+        for (const group of groups.values()) {
+            if (group.tallyId == null) continue;
+            const primary = (entry) => /^\*?(?:F|FMESH)\d+(?::.*)?$/i.test(entry.name) ? 0 : 1;
+            group.cards.sort((left, right) => primary(left) - primary(right) || left.name.localeCompare(right.name, undefined, { numeric: true }));
+        }
+        return [...groups.values()];
+    }
     function fmt(x) { return (x == null ? "—" : Number(x).toLocaleString("en-US")); }
     const $ = (s, r) => { return (r || document).querySelector(s); };
 
@@ -172,7 +189,9 @@
             map: "M9 3 3 5v16l6-2 6 2 6-2V3l-6 2-6-2Zm0 0v16m6-14v16",
             layers: "M12 3 2 8l10 5 10-5-10-5Zm-10 9 10 5 10-5M2 16l10 5 10-5",
             box: "M12 3 3 7.5V16l9 5 9-5V7.5L12 3Zm0 0v18M3 7.5l9 4.5 9-4.5",
-            diff: "M12 3v18M5 8l-3 4 3 4m14-8 3 4-3 4"
+            diff: "M12 3v18M5 8l-3 4 3 4m14-8 3 4-3 4",
+            previous: "M15 5l-7 7 7 7",
+            next: "M9 5l7 7-7 7"
         }[name];
         const s = svgEl("svg", { viewBox: "0 0 24 24", width: 16, height: 16, fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" });
         s.appendChild(svgEl("path", { d: p }));
@@ -1155,27 +1174,42 @@
             }
             return groups;
         }
+        function cardEntry(entry) {
+            const detail = detailsBlock(entry.name, () => cardDetails(entry));
+            detail.classList.add("data-card-entry");
+            if (query && entry.name.toLowerCase().includes(query)) {
+                const summary = detail.querySelector("summary");
+                clear(summary); summary.appendChild(el("mark", { text: entry.name }));
+            }
+            return detail;
+        }
+        const groupCount = (type, groups) => {
+            const tallyCount = groups.filter((group) => group.tallyId != null).length;
+            return tallyCount ? `${fmt(tallyCount)} ${tallyCount === 1 ? "tally" : "tallies"}, ${fmt(groups.reduce((count, group) => count + group.cards.length, 0))} cards`
+                : `${fmt(groups.length)} ${type.toLowerCase()}`;
+        };
         function paint(value) {
             query = value; clear(list);
             let shown = 0;
             for (const file of dataFiles) {
                 const fileMatches = !query || `${file.name} ${file.path || ""} ${file.roles.join(" ")}`.toLowerCase().includes(query);
-                const matching = file.cards.filter((entry) => (category.value === "all" || entry.category === category.value)
-                    && (fileMatches || `${entry.name} ${entry.text}`.toLowerCase().includes(query)));
+                const fileGroups = groupDataCards(file.cards);
+                const matching = fileGroups.filter((group) => (category.value === "all" || group.category === category.value)
+                    && (fileMatches || group.name.toLowerCase().includes(query) || group.cards.some((entry) => `${entry.name} ${entry.text}`.toLowerCase().includes(query))));
                 if (!matching.length && (!fileMatches || category.value !== "all")) continue;
                 shown++;
                 const renderContents = () => {
                     const content = el("div", { class: "data-file-content" });
                     for (const [type, cards] of groupedCards(matching)) {
-                        const group = el("section", { class: "data-card-group" }, el("h3", { text: `${type} (${fmt(cards.length)})` }));
+                        const group = el("section", { class: "data-card-group" }, el("h3", { text: groupCount(type, cards) }));
                         const identifiers = el("div", { class: "card-identifiers" });
-                        for (const entry of cards) {
-                            const detail = detailsBlock(entry.name, () => cardDetails(entry));
-                            detail.classList.add("data-card-entry");
-                            if (query && entry.name.toLowerCase().includes(query)) {
-                                const summary = detail.querySelector("summary");
-                                clear(summary); summary.appendChild(el("mark", { text: entry.name }));
+                        for (const item of cards) {
+                            if (item.tallyId == null) {
+                                identifiers.appendChild(cardEntry(item.cards[0]));
+                                continue;
                             }
+                            const detail = detailsBlock(`${item.name} (${fmt(item.cards.length)} cards)`, () => el("div", { class: "tally-members" }, item.cards.map(cardEntry)));
+                            detail.classList.add("data-tally-entry");
                             identifiers.appendChild(detail);
                         }
                         group.appendChild(identifiers); content.appendChild(group);
@@ -1189,7 +1223,7 @@
                 row.open = expanded;
                 const summary = row.querySelector("summary");
                 clear(summary);
-                const counts = [...groupedCards(file.cards)].map(([type, cards]) => `${fmt(cards.length)} ${type.toLowerCase()}`).join(" · ");
+                const counts = [...groupedCards(fileGroups)].map(([type, groups]) => groupCount(type, groups)).join(" · ");
                 append(summary, [el("span", { class: "data-file-name", text: file.name }),
                 el("span", { class: "data-file-role", text: `Selected as: ${file.roles.map((role) => role === "transforms" ? "transformations" : role).join(", ")}` }),
                 el("span", { class: "data-file-path mono", text: file.path || "Path not recorded" }),
@@ -1207,6 +1241,44 @@
     RENDER.diff = (root) => {
         clear(root);
         const out = el("div", { class: "section-gap" });
+        const shortPath = (path) => path ? path.split(/[\\/]/).filter(Boolean).pop() : "Not recorded";
+        const pathLabel = (path) => el("span", { text: shortPath(path), title: path || "Not recorded" });
+        const signed = (value) => `${value > 0 ? "+" : ""}${fmt(value)}`;
+        function section(id, title, content) {
+            return el("section", { class: "diff-section", id: `diff-${id}`, "aria-label": title }, [el("h3", { text: title }), content]);
+        }
+        function openComparison(title, content) {
+            clear(drawer);
+            drawer.appendChild(el("div", { class: "drawer-head" }, [el("h3", { class: "spring", text: title }),
+            el("button", { class: "iconbtn", "aria-label": "Close details", title: "Close details", text: "\u00d7", onclick: closeDrawer })]));
+            drawer.appendChild(el("div", { class: "drawer-body diff-detail" }, content));
+            revealDrawer({ envelope: null, filler: null });
+        }
+        function comparisonTable(fields) {
+            const table = tableOf(["Field", "Baseline", "Current"], fields.map(([field, before, after]) => [
+                field, before == null ? "Not recorded" : metaVal(before), after == null ? "Not recorded" : metaVal(after)
+            ]));
+            [...table.querySelectorAll("tbody tr")].forEach((row, index) => {
+                row.classList.add(JSON.stringify(fields[index][1]) === JSON.stringify(fields[index][2]) ? "diff-unchanged" : "diff-changed");
+            });
+            return table;
+        }
+        function paged(items, render, noun = "results") {
+            const body = el("div");
+            const note = el("span", { class: "count-note", "aria-live": "polite" });
+            let offset = 0;
+            const previous = el("button", { class: "iconbtn", title: "Previous page", "aria-label": "Previous page", onclick: () => { offset -= 25; paint(); } }, icon("previous"));
+            const next = el("button", { class: "iconbtn", title: "Next page", "aria-label": "Next page", onclick: () => { offset += 25; paint(); } }, icon("next"));
+            function paint() {
+                clear(body);
+                body.appendChild(items.length ? render(items.slice(offset, offset + 25)) : el("p", { class: "empty", text: `No matching ${noun}.` }));
+                note.textContent = `${items.length ? offset + 1 : 0}-${Math.min(offset + 25, items.length)} of ${fmt(items.length)} ${noun}`;
+                previous.disabled = offset === 0;
+                next.disabled = offset + 25 >= items.length;
+            }
+            paint();
+            return el("div", { class: "diff-pages" }, [el("div", { class: "toolbar diff-pagination" }, [note, previous, next]), body]);
+        }
         const dz = el("div", { class: "dropzone" }, [
             el("div", { style: "font-weight:700;margin-bottom:6px", text: "Compare against another build" }),
             el("div", { text: "Drop a build_report.json here, or click to choose a file." })
@@ -1226,9 +1298,18 @@
         function readFile(file) {
             const fr = new FileReader();
             fr.onload = () => {
-                try { renderDiff(JSON.parse(fr.result)); }
+                try {
+                    renderDiff(JSON.parse(fr.result));
+                    if (out.querySelector(".diff-summary")) {
+                        clear(dz);
+                        dz.appendChild(el("span", { text: `Baseline: ${file.name}` }));
+                        dz.appendChild(el("span", { class: "muted", text: "Replace baseline" }));
+                        dz.classList.add("diff-loaded");
+                    }
+                }
                 catch (err) { clear(out); out.appendChild(el("div", { class: "empty", text: `Could not parse JSON: ${err}` })); }
             };
+            fr.onerror = () => { clear(out); out.appendChild(el("p", { class: "empty", text: "Could not read the baseline file." })); };
             fr.readAsText(file);
         }
         function renderDiff(other) {
@@ -1239,10 +1320,13 @@
             }
             const oEnv = Object.create(null); other.envelope_entries.forEach((e) => { oEnv[e.envelope_name] = e; });
             const cEnv = Object.create(null); envelopes.forEach((e) => { cEnv[e.envelope_name] = e; });
-            out.appendChild(tableOf(["Build", "Configuration", "Commit", "Built"], [
+            out.appendChild(el("div", { class: "diff-builds" }, [
+                el("div", {}, [el("span", { class: "muted", text: "Baseline" }), pathLabel(other.config_path)]),
+                el("div", {}, [el("span", { class: "muted", text: "Current" }), pathLabel(DATA.config_path)])]));
+            out.appendChild(detailsBlock("Build provenance", tableOf(["Build", "Configuration", "Commit", "Built"], [
                 ["Baseline", other.config_path || "Unknown", other.commit_hash || "Unknown", other.date_time || "Unknown"],
                 ["Current", DATA.config_path, DATA.commit_hash, DATA.date_time]
-            ]));
+            ])));
             const added = [], removed = [], changed = [];
             envelopes.forEach((e) => {
                 const o = oEnv[e.envelope_name];
@@ -1252,23 +1336,131 @@
             });
             (other.envelope_entries || []).forEach((e) => { if (!cEnv[e.envelope_name]) removed.push(e); });
 
-            out.appendChild(el("div", { class: "grid kpis" }, [
+            const summary = el("div", { class: "diff-summary" }, [
                 kpi(added.length, "Added envelopes"),
                 kpi(removed.length, "Removed envelopes"),
                 kpi(changed.length, "Changed assignments")
-            ]));
+            ]);
+            out.appendChild(summary);
             out.querySelectorAll(".kpi .v").forEach((value, index) => {
                 value.style.color = ["var(--ok)", "var(--danger)", "var(--warn)"][index];
             });
 
-            if (changed.length) out.appendChild(card("Changed assignments", tableOf(
-                ["Envelope", "Baseline filler / status", "Current filler / status", "Universe (before / after)", "Transform (before / after)"],
-                changed.map((change) => [
-                    el("button", { class: "textbtn", text: change.name, onclick: () => openEnvelope(change.name) }),
-                    change.before.filler_name || statusLabel(statusOf(change.before)), change.after.filler_name || statusLabel(statusOf(change.after)),
-                    `${change.before.universe_id ?? "None"} / ${change.after.universe_id ?? "None"}`,
-                    `${change.before.transform || "None"} / ${change.after.transform || "None"}`
-                ]))));
+            const assignmentChanges = [
+                ...changed.map((change) => ({ ...change, kind: "changed" })),
+                ...added.map((entry) => ({ name: entry.envelope_name, after: entry, kind: "added" })),
+                ...removed.map((entry) => ({ name: entry.envelope_name, before: entry, kind: "removed" }))
+            ];
+            const assignmentLabel = (entry) => entry ? entry.filler_name || statusLabel(statusOf(entry)) : "Absent";
+            const assignmentValue = (entry, field) => entry ? field === "status" ? statusOf(entry) : entry[field] ?? null : null;
+            const fieldChanged = (change, field) => assignmentValue(change.before, field) !== assignmentValue(change.after, field);
+            const previousFillers = new Map(other.filler_entries.map((filler) => [filler.name, filler]));
+            const componentFields = ["universe_id", "cell_count", "surface_count", "materials", "cell_id_runs", "surface_id_runs", "universe_id_runs", "metadata"];
+            function componentDetail(before, after) {
+                const basic = ["name", "envelope_count", ...componentFields.filter((field) => !field.endsWith("_runs"))];
+                const body = el("div", {}, comparisonTable(basic.map((field) => [field, before ? before[field] : "Absent", after ? after[field] : "Absent"])));
+                componentFields.filter((field) => field.endsWith("_runs")).forEach((field) => {
+                    if (!before?.[field] && !after?.[field]) return;
+                    body.appendChild(detailsBlock(`${field} (${fmt(before?.[field]?.length || 0)} / ${fmt(after?.[field]?.length || 0)} runs)`,
+                        () => comparisonTable([[field, before?.[field], after?.[field]]])));
+                });
+                return body;
+            }
+            function openAssignment(change) {
+                const fields = ["filler_name", "status", "universe_id", "transform", "cell_ids"];
+                const rows = fields.map((field) => [field,
+                    change.before ? field === "status" ? statusLabel(statusOf(change.before)) : change.before[field] : "Absent",
+                    change.after ? field === "status" ? statusLabel(statusOf(change.after)) : change.after[field] : "Absent"]);
+                rows.push(["Assigned by", other.evidence?.assignment_origins?.[change.name], evidence.assignment_origins?.[change.name]]);
+                for (const key of discoverKeys([change.before, change.after].filter(Boolean)))
+                    rows.push([`Metadata: ${key}`, metaGet(change.before, key), metaGet(change.after, key)]);
+                const body = el("div", {}, comparisonTable(rows));
+                const beforeFiller = previousFillers.get(change.before?.filler_name), afterFiller = fillerByName[change.after?.filler_name];
+                if (beforeFiller || afterFiller) body.appendChild(detailsBlock("Assigned component comparison", () => componentDetail(beforeFiller, afterFiller)));
+                openComparison(change.name, body);
+            }
+            function assignmentTable(items) {
+                const comparison = (change, field) => el("span", {
+                    class: fieldChanged(change, field) ? "diff-modified" : "muted",
+                    text: fieldChanged(change, field)
+                        ? `${assignmentValue(change.before, field) ?? "None"} -> ${assignmentValue(change.after, field) ?? "None"}`
+                        : String(assignmentValue(change.after, field) ?? "None")
+                });
+                return tableOf(["Envelope", "Baseline filler / status", "Current filler / status", "Universe", "Transform"], items.map((change) => [
+                    el("button", { class: "textbtn", text: change.name, onclick: () => openAssignment(change) }),
+                    assignmentLabel(change.before), assignmentLabel(change.after), comparison(change, "universe_id"), comparison(change, "transform")
+                ]));
+            }
+            if (assignmentChanges.length) {
+                let query = "", view = "groups";
+                const results = el("div", { class: "diff-assignment-results" });
+                const kind = el("select", { class: "input", "aria-label": "Assignment change type", onchange: paintAssignments }, [
+                    ["all", "All assignment changes"], ["changed", "Reassigned"], ["added", "Added envelopes"], ["removed", "Removed envelopes"],
+                    ["transform", "Transform changed"], ["universe_id", "Universe changed"], ["status", "Status changed"]
+                ].map(([value, text]) => el("option", { value, text })));
+                const metadataValue = el("select", { class: "input", "aria-label": "Metadata value", onchange: paintAssignments });
+                const metadataKey = el("select", { class: "input", "aria-label": "Filter by metadata", onchange: () => { updateMetadata(); paintAssignments(); } }, [
+                    el("option", { value: "", text: "All metadata" }),
+                    ...discoverKeys([...envelopes, ...other.envelope_entries]).map((key) => el("option", { value: key, text: key }))
+                ]);
+                function updateMetadata() {
+                    clear(metadataValue);
+                    metadataValue.appendChild(el("option", { value: "", text: "All values" }));
+                    const values = new Set(assignmentChanges.flatMap((change) => [change.before, change.after]
+                        .map((entry) => metaVal(metaGet(entry, metadataKey.value))).filter(Boolean)));
+                    [...values].sort((left, right) => left.localeCompare(right, undefined, { numeric: true })).forEach((value) => metadataValue.appendChild(el("option", { value, text: value })));
+                    metadataValue.disabled = !metadataKey.value;
+                }
+                const modeButtons = [["groups", "By substitution"], ["envelopes", "By envelope"]].map(([value, text]) => el("button", {
+                    class: "btn", text, "aria-pressed": String(view === value), onclick: () => {
+                        view = value;
+                        modeButtons.forEach((button, index) => button.setAttribute("aria-pressed", String(index === (view === "groups" ? 0 : 1))));
+                        paintAssignments();
+                    }
+                }));
+                function paintAssignments() {
+                    const matching = assignmentChanges.filter((change) => {
+                        if (kind.value !== "all" && !(["transform", "universe_id", "status"].includes(kind.value)
+                            ? change.before && change.after && fieldChanged(change, kind.value)
+                            : change.kind === kind.value)) return false;
+                        if (metadataKey.value && metadataValue.value && ![change.before, change.after].some((entry) => metaVal(metaGet(entry, metadataKey.value)) === metadataValue.value)) return false;
+                        return !query || [change.name, assignmentLabel(change.before), assignmentLabel(change.after),
+                        metaVal(change.before?.metadata), metaVal(change.after?.metadata)].join(" ").toLowerCase().includes(query);
+                    });
+                    clear(results);
+                    if (view === "envelopes") {
+                        results.appendChild(paged(matching, assignmentTable, "placements"));
+                        return;
+                    }
+                    const groups = new Map();
+                    matching.forEach((change) => {
+                        const key = JSON.stringify([change.kind, change.before?.filler_name, change.before && statusOf(change.before), change.after?.filler_name, change.after && statusOf(change.after)]);
+                        if (!groups.has(key)) groups.set(key, []);
+                        groups.get(key).push(change);
+                    });
+                    const ordered = [...groups.values()].sort((left, right) => right.length - left.length || left[0].name.localeCompare(right[0].name));
+                    results.appendChild(paged(ordered, (page) => el("div", {}, page.map((group) => {
+                        const first = group[0];
+                        const detail = detailsBlock(`${assignmentLabel(first.before)} -> ${assignmentLabel(first.after)} | ${fmt(group.length)} placements`, () => {
+                            const before = previousFillers.get(first.before?.filler_name), after = fillerByName[first.after?.filler_name];
+                            return el("div", {}, [before || after ? el("button", {
+                                class: "btn", text: "Compare assigned components",
+                                onclick: () => openComparison(`${assignmentLabel(first.before)} -> ${assignmentLabel(first.after)}`, componentDetail(before, after))
+                            }, icon("diff")) : null,
+                            paged(group, assignmentTable, "placements")]);
+                        });
+                        detail.classList.add("diff-group");
+                        return detail;
+                    })), "substitutions"));
+                }
+                updateMetadata();
+                out.appendChild(el("section", { class: "diff-section", id: "diff-assignments" }, [
+                    el("h3", { text: "Assignment changes" }),
+                    el("div", { class: "toolbar" }, [el("div", { class: "diff-modes", role: "group", "aria-label": "Assignment view" }, modeButtons),
+                    searchBox("Search envelopes, fillers, or metadata", (value) => { query = value; paintAssignments(); }), kind, metadataKey, metadataValue]), results
+                ]));
+                paintAssignments();
+            }
 
             const oldEvidence = other.evidence || {};
             const oldInputs = oldEvidence.inputs || [];
@@ -1276,58 +1468,314 @@
             const previousInputs = new Map(oldInputs.map((input) => [keyOf(input), input]));
             const currentInputs = new Map(inputs.map((input) => [keyOf(input), input]));
             const inputChanges = [];
+            const impactsByFiller = new Map();
+            [...envelopes, ...other.envelope_entries].forEach((entry) => {
+                if (!entry.filler_name) return;
+                if (!impactsByFiller.has(entry.filler_name)) impactsByFiller.set(entry.filler_name, new Set());
+                impactsByFiller.get(entry.filler_name).add(entry.envelope_name);
+            });
             for (const key of new Set([...previousInputs.keys(), ...currentInputs.keys()])) {
                 const before = previousInputs.get(key), after = currentInputs.get(key);
-                if (before && after && before.sha256 === after.sha256 && before.path === after.path) continue;
+                if (before && after && before.sha256 && before.sha256 === after.sha256 && before.path === after.path) continue;
                 const input = after || before;
-                const impacts = new Set([...envelopes, ...other.envelope_entries]
-                    .filter((entry) => (input.role === "filler" || input.role === "filler_metadata") ? entry.filler_name === input.name : true)
-                    .map((entry) => entry.envelope_name));
-                inputChanges.push([input.role, input.name, !before ? "Added" : !after ? "Removed" : before.sha256 !== after.sha256 ? "Content changed" : "Path changed",
-                before ? before.path : "None", after ? after.path : "None",
-                input.role === "filler" || input.role === "filler_metadata" ? `${fmt(impacts.size)} placements (baseline/current union)` : "Build-wide input"]);
+                const kind = !before ? "Added" : !after ? "Removed" : !before.sha256 || !after.sha256 ? "Not comparable" : before.sha256 !== after.sha256 ? "Content changed" : "Path changed";
+                const impact = input.role === "filler" || input.role === "filler_metadata"
+                    ? `${fmt(impactsByFiller.get(input.name)?.size || 0)} placements (baseline/current union)` : "Build-wide input";
+                inputChanges.push({ before, after, kind, impact, input });
             }
-            if (inputChanges.length) out.appendChild(card("Input changes and impact", tableOf(["Role", "Input", "Change", "Baseline path", "Current path", "Impact"], inputChanges)));
-            if (!oldInputs.length || !inputs.length) out.appendChild(el("p", { class: "notice", text: "Content comparison is incomplete: input hashes were not recorded for one or both builds." }));
-
-            const previousFillers = new Map(other.filler_entries.map((filler) => [filler.name, filler]));
-            const componentChanges = [];
-            for (const filler of fillers) {
-                const previous = previousFillers.get(filler.name);
-                if (!previous) continue;
-                for (const field of ["universe_id", "cell_count", "surface_count", "materials", "cell_id_runs", "surface_id_runs"]) {
-                    if (JSON.stringify(previous[field]) !== JSON.stringify(filler[field])) {
-                        const summary = (value) => field.endsWith("_runs") ? `${(value || []).length} ID runs` : metaVal(value);
-                        componentChanges.push([filler.name, field, summary(previous[field]), summary(filler[field]), `${fmt(filler.envelope_count)} current placements`]);
+            const pathChanges = inputChanges.filter((change) => change.kind === "Path changed");
+            const contentChanges = inputChanges.filter((change) => change.kind !== "Path changed");
+            if (inputChanges.length) {
+                let query = "";
+                const results = el("div");
+                const filter = el("select", { class: "input", "aria-label": "Input change type", onchange: paintInputs },
+                    ["All changes", "Content changed", "Added", "Removed", "Not comparable", "Path changed"].map((text) => el("option", { text })));
+                function inputTable(items) {
+                    return tableOf(["Input", "Role", "Change", "Baseline file", "Current file", "Impact"], items.map((change) => [
+                        el("button", {
+                            class: "textbtn", text: change.input.name, onclick: () => openComparison(change.input.name,
+                                tableOf(["Input evidence", "Baseline", "Current"], ["role", "name", "path", "sha256", "bytes"].map((field) => [field,
+                                    change.before ? metaVal(change.before[field]) || "Not recorded" : "Absent",
+                                    change.after ? metaVal(change.after[field]) || "Not recorded" : "Absent"])))
+                        }),
+                        change.input.role, change.kind, change.before ? pathLabel(change.before.path) : "Absent", change.after ? pathLabel(change.after.path) : "Absent", change.impact
+                    ]));
+                }
+                function paintInputs() {
+                    clear(results);
+                    const matches = (change) => (filter.value === "All changes" || filter.value === change.kind)
+                        && (!query || [change.input.name, change.input.role, change.before?.path, change.after?.path].join(" ").toLowerCase().includes(query));
+                    if (filter.value !== "Path changed") results.appendChild(paged(contentChanges.filter(matches), inputTable, "inputs"));
+                    const paths = pathChanges.filter(matches);
+                    if (paths.length) {
+                        const detail = detailsBlock(`Path-only changes (${fmt(paths.length)}) | identical content hashes`, () => paged(paths, inputTable, "inputs"));
+                        detail.classList.add("diff-path-changes");
+                        results.appendChild(detail);
+                        if (filter.value === "Path changed") detail.open = true;
                     }
                 }
+                out.appendChild(section("inputs", "Input changes and impact", [el("div", { class: "toolbar" }, [
+                    searchBox("Search inputs or paths", (value) => { query = value; paintInputs(); }), filter]), results]));
+                paintInputs();
             }
-            if (componentChanges.length) out.appendChild(card("Component changes", tableOf(["Filler", "Field", "Baseline", "Current", "Impact"], componentChanges)));
+            if (!oldInputs.length || !inputs.length || [...oldInputs, ...inputs].some((input) => !input.sha256))
+                out.insertBefore(el("p", { class: "notice", text: "Content comparison is incomplete: input hashes were not recorded for one or both builds." }), summary);
+
+            const componentChanges = [];
+            for (const name of new Set([...previousFillers.keys(), ...fillers.map((filler) => filler.name)])) {
+                const before = previousFillers.get(name), after = fillerByName[name];
+                const fields = componentFields.filter((field) => JSON.stringify(before?.[field]) !== JSON.stringify(after?.[field]));
+                if (!before || !after || fields.length) componentChanges.push({ before, after, fields, kind: !before ? "Added" : !after ? "Removed" : "Changed" });
+            }
+            const replacements = new Map();
+            changed.filter((change) => change.before.filler_name && change.after.filler_name && change.before.filler_name !== change.after.filler_name).forEach((change) => {
+                const key = JSON.stringify([change.before.filler_name, change.after.filler_name]);
+                const before = previousFillers.get(change.before.filler_name), after = fillerByName[change.after.filler_name];
+                if (!before || !after) return;
+                if (!replacements.has(key)) replacements.set(key, {
+                    before, after, kind: "Assignment replacement", placements: 0,
+                    fields: componentFields.filter((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]))
+                });
+                replacements.get(key).placements++;
+            });
+            componentChanges.unshift(...[...replacements.values()].sort((left, right) => right.placements - left.placements));
+            if (componentChanges.length) {
+                const results = el("div");
+                let query = "";
+                const filter = el("select", { class: "input", "aria-label": "Component change type", onchange: paintComponents },
+                    ["All component changes", "Assignment replacement", "Changed", "Added", "Removed"].map((text) => el("option", { text })));
+                function paintComponents() {
+                    clear(results);
+                    results.appendChild(paged(componentChanges.filter((change) => (filter.value === "All component changes" || filter.value === change.kind)
+                        && (!query || `${change.before?.name} ${change.after?.name} ${change.fields.join(" ")}`.toLowerCase().includes(query))), (items) => tableOf(
+                            ["Baseline component", "Current component", "Change", "Changed fields", "Impact"], items.map((change) => [
+                                change.before?.name || "Absent",
+                                el("button", {
+                                    class: "textbtn", text: change.after?.name || "Absent", "aria-label": `Compare ${change.before?.name || "Absent"} to ${change.after?.name || "Absent"}`,
+                                    onclick: () => openComparison(`${change.before?.name || "Absent"} -> ${change.after?.name || "Absent"}`, componentDetail(change.before, change.after))
+                                }),
+                                change.kind, change.fields.join(", ") || "No recorded field changes",
+                                change.placements ? `${fmt(change.placements)} reassigned placements` : `${fmt(change.before?.envelope_count || 0)} baseline / ${fmt(change.after?.envelope_count || 0)} current placements`
+                            ])), "components"));
+                }
+                out.appendChild(section("components", "Component changes", [el("div", { class: "toolbar" }, [
+                    searchBox("Search components or fields", (value) => { query = value; paintComponents(); }), filter]), results]));
+                paintComponents();
+            }
             const summaryChanges = [];
-            for (const field of ["total_cells", "total_surfaces", "materials", "transforms", "source", "tallies"]) {
-                if (JSON.stringify(other[field]) !== JSON.stringify(DATA[field])) summaryChanges.push([field, metaVal(other[field]), metaVal(DATA[field])]);
+            const summaryValue = (value) => Array.isArray(value)
+                ? value.length ? el("ul", { class: "diff-summary-list" }, value.map((item) => el("li", { text: metaVal(item) }))) : "None"
+                : value == null ? "None" : metaVal(value);
+            for (const field of ["build_status", "total_cells", "total_surfaces", "materials", "transforms", "source", "tallies"]) {
+                if (JSON.stringify(other[field]) !== JSON.stringify(DATA[field])) summaryChanges.push([field, summaryValue(other[field]), summaryValue(DATA[field])]);
             }
-            if (summaryChanges.length) out.appendChild(card("Build summary changes", tableOf(["Field", "Baseline", "Current"], summaryChanges)));
+            if (summaryChanges.length) out.insertBefore(detailsBlock("Build summary changes", tableOf(["Field", "Baseline", "Current"], summaryChanges)), summary.nextSibling);
             const cardKey = (entry) => `${entry.category}:${entry.name}`;
-            const previousCards = new Map((oldEvidence.data_cards || []).map((entry) => [cardKey(entry), entry]));
-            const currentCards = new Map(dataCards.map((entry) => [cardKey(entry), entry]));
+            const previousCards = new Map(groupDataCards(oldEvidence.data_cards || []).map((group) => [group.key, group]));
+            const currentCards = new Map(groupDataCards(dataCards).map((group) => [group.key, group]));
             const cardChanges = [];
             for (const key of new Set([...previousCards.keys(), ...currentCards.keys()])) {
-                const before = previousCards.get(key), after = currentCards.get(key);
-                if (before && after && before.text === after.text) continue;
-                cardChanges.push([(after || before).name, before ? el("pre", { text: before.text }) : "Absent", after ? el("pre", { text: after.text }) : "Absent"]);
+                const previous = previousCards.get(key), current = currentCards.get(key);
+                const beforeMembers = new Map((previous?.cards || []).map((entry) => [cardKey(entry), entry]));
+                const afterMembers = new Map((current?.cards || []).map((entry) => [cardKey(entry), entry]));
+                const members = [...new Set([...afterMembers.keys(), ...beforeMembers.keys()])].map((memberKey) => {
+                    const before = beforeMembers.get(memberKey), after = afterMembers.get(memberKey);
+                    return { before, after, kind: !before ? "Added" : !after ? "Removed" : before.text === after.text ? "Unchanged" : "Modified" };
+                });
+                const changedCount = members.filter((member) => member.kind !== "Unchanged").length;
+                if (!changedCount) continue;
+                const isTally = (current || previous).tallyId != null;
+                cardChanges.push({
+                    before: isTally ? previous : previous?.cards[0], after: isTally ? current : current?.cards[0],
+                    kind: !previous ? "Added" : !current ? "Removed" : "Modified", members: isTally ? members : null, changedCount
+                });
             }
-            if (cardChanges.length) out.appendChild(detailsBlock(`Data card changes (${cardChanges.length})`, tableOf(["Card", "Baseline", "Current"], cardChanges)));
-            [["Added in this build", added, "tag-added"], ["Removed (only in other)", removed, "tag-removed"]].forEach((grp) => {
-                if (!grp[1].length) return;
-                const chips = el("div", { class: "chips" });
-                grp[1].forEach((e) => { chips.appendChild(el("span", { class: `chip ${grp[2]}`, text: e.envelope_name })); });
-                out.appendChild(el("div", { class: "card" }, [el("div", { class: "card-head" }, el("h3", { text: grp[0] })), el("div", { class: "card-body" }, chips)]));
+            cardChanges.sort((left, right) => ({ Modified: 0, Removed: 1, Added: 2 }[left.kind] - { Modified: 0, Removed: 1, Added: 2 }[right.kind])
+                || (left.after || left.before).name.localeCompare((right.after || right.before).name, undefined, { numeric: true }));
+            function cardChangeBody(change) {
+                const entry = change.after || change.before;
+                const body = el("div");
+                const fullText = () => tableOf(["Baseline definition", "Current definition"], [[
+                    change.before ? el("pre", { text: change.before.text }) : "Absent", change.after ? el("pre", { text: change.after.text }) : "Absent"
+                ]]);
+                const parts = window.Diff.diffLines(change.before?.text || "", change.after?.text || "", { timeout: 200, maxEditLength: 10000 });
+                body.appendChild(el("p", { class: "count-note", text: `${entry.category} | ${change.kind}` }));
+                if (parts) {
+                    const result = el("div", { class: "diff-code" });
+                    const context = el("input", { type: "checkbox", onchange: paintLines });
+                    function paintLines() {
+                        let baselineLine = 1, currentLine = 1;
+                        const rows = [];
+                        parts.forEach((part, partIndex) => {
+                            const lines = part.value.match(/[^\n]*\n|[^\n]+$/g) || [];
+                            const folded = !context.checked && !part.added && !part.removed && lines.length > 6;
+                            const start = partIndex === 0 ? 0 : 3, end = partIndex === parts.length - 1 ? 0 : 3;
+                            lines.forEach((line, index) => {
+                                const before = part.added ? "" : baselineLine++;
+                                const after = part.removed ? "" : currentLine++;
+                                if (folded && index >= start && index < lines.length - end) {
+                                    if (index === start) rows.push({ folded: true, text: `${fmt(lines.length - start - end)} unchanged lines` });
+                                    return;
+                                }
+                                rows.push({
+                                    before, after, kind: part.added ? "added" : part.removed ? "removed" : "context",
+                                    text: line.endsWith("\n") ? line.slice(0, -1) : line
+                                });
+                            });
+                        });
+                        clear(result);
+                        result.appendChild(paged(rows, (page) => el("div", { class: "diff-lines", role: "list", "aria-label": "Data card line changes" }, page.map((row) =>
+                            el("div", { class: `diff-line diff-line-${row.folded ? "folded" : row.kind}`, role: "listitem" }, [
+                                el("span", { class: "diff-line-number", text: row.before || "", "aria-label": row.before ? `Baseline line ${row.before}` : "" }),
+                                el("span", { class: "diff-line-number", text: row.after || "", "aria-label": row.after ? `Current line ${row.after}` : "" }),
+                                el("span", { text: row.kind === "added" ? "+" : row.kind === "removed" ? "-" : "" }), el("pre", { text: row.text })
+                            ]))), "lines"));
+                    }
+                    body.appendChild(el("label", { class: "diff-context-toggle" }, [context, "Show all unchanged lines"]));
+                    body.appendChild(result);
+                    paintLines();
+                    body.appendChild(detailsBlock("Full definitions", fullText));
+                } else {
+                    body.appendChild(el("p", { class: "notice", text: "Line comparison limit reached. Full definitions are shown below." }));
+                    body.appendChild(fullText());
+                }
+                return body;
+            }
+            function openCardChange(change) {
+                const entry = change.after || change.before;
+                if (!change.members) { openComparison(entry.name, cardChangeBody(change)); return; }
+                const definition = el("div", { class: "diff-tally-definition" });
+                const buttons = [];
+                function selectMember(member, selected) {
+                    buttons.forEach((button) => button.setAttribute("aria-pressed", String(button === selected)));
+                    clear(definition);
+                    const card = member.after || member.before;
+                    definition.appendChild(el("h4", { text: card.name }));
+                    definition.appendChild(cardChangeBody(member));
+                }
+                const members = tableOf(["Tally card", "Change", "Baseline file", "Current file"], change.members.map((member) => {
+                    const card = member.after || member.before;
+                    const button = el("button", { class: "textbtn", text: card.name, "aria-pressed": "false", onclick: () => selectMember(member, button) });
+                    buttons.push(button);
+                    return [button, member.kind, member.before ? pathLabel(member.before.input) : "Absent", member.after ? pathLabel(member.after.input) : "Absent"];
+                }));
+                members.classList.add("diff-tally-members");
+                const firstModified = change.members.findIndex((member) => member.kind === "Modified");
+                const firstChanged = firstModified < 0 ? change.members.findIndex((member) => member.kind !== "Unchanged") : firstModified;
+                selectMember(change.members[firstChanged], buttons[firstChanged]);
+                openComparison(entry.name, [el("p", { class: "count-note", text: `${change.kind} | ${fmt(change.changedCount)} changed / ${fmt(change.members.length)} member cards` }), members, definition]);
+            }
+            if (cardChanges.length) {
+                let query = "";
+                const results = el("div");
+                const filter = el("select", { class: "input", "aria-label": "Data card change type", onchange: paintCards },
+                    ["All card changes", "Modified", "Added", "Removed"].map((text) => el("option", { text })));
+                const category = el("select", { class: "input", "aria-label": "Data card category", onchange: paintCards }, [el("option", { value: "", text: "All categories" }),
+                ...[...new Set(cardChanges.map((change) => (change.after || change.before).category))].sort().map((value) => el("option", { value, text: value }))]);
+                function paintCards() {
+                    clear(results);
+                    results.appendChild(paged(cardChanges.filter((change) => {
+                        const entry = change.after || change.before;
+                        return (filter.value === "All card changes" || filter.value === change.kind) && (!category.value || category.value === entry.category)
+                            && (!query || `${entry.name} ${entry.category} ${[change.before, change.after].flatMap((side) => side?.cards || (side ? [side] : []))
+                                .map((card) => `${card.name} ${card.text}`).join(" ")}`.toLowerCase().includes(query));
+                    }), (items) => tableOf(["Tally / Card", "Category", "Change", "Baseline file", "Current file"], items.map((change) => {
+                        const entry = change.after || change.before;
+                        const files = (side) => {
+                            if (!side) return "Absent";
+                            const paths = [...new Set((side.cards || [side]).map((card) => card.input))];
+                            return paths.length === 1 ? pathLabel(paths[0]) : el("ul", { class: "diff-summary-list" }, paths.map((path) => el("li", {}, pathLabel(path))));
+                        };
+                        return [el("div", {}, [el("button", { class: "textbtn", text: entry.name, onclick: () => openCardChange(change) }),
+                        change.members ? el("div", { class: "count-note", text: `${fmt(change.changedCount)} changed / ${fmt(change.members.length)} cards` }) : null]), entry.category, change.kind,
+                        files(change.before), files(change.after)];
+                    })), "items"));
+                }
+                const tallyGroups = cardChanges.filter((change) => change.members).length;
+                out.appendChild(section("cards", "Data card changes", [
+                    el("p", { class: "count-note", text: ["Modified", "Added", "Removed"].map((kind) => `${fmt(cardChanges.filter((change) => change.kind === kind).length)} ${kind.toLowerCase()}`).join(" / ") }),
+                    tallyGroups ? el("p", { class: "count-note", text: `${fmt(cardChanges.length)} items (${fmt(tallyGroups)} tally ${tallyGroups === 1 ? "group" : "groups"}); ${fmt(cardChanges.reduce((count, change) => count + change.changedCount, 0))} individual card changes` }) : null,
+                    el("div", { class: "toolbar" }, [searchBox("Search card IDs or definitions", (value) => { query = value; paintCards(); }), filter, category]), results]));
+                paintCards();
+            }
+            const frequencies = (messages) => {
+                const counts = new Map();
+                (messages || []).forEach((message) => counts.set(message, (counts.get(message) || 0) + 1));
+                return counts;
+            };
+            const previousWarnings = frequencies(other.warnings), currentWarnings = frequencies(DATA.warnings);
+            const warningChanges = [...new Set([...previousWarnings.keys(), ...currentWarnings.keys()])].map((message) => ({
+                message, before: previousWarnings.get(message) || 0, after: currentWarnings.get(message) || 0
+            })).filter((change) => change.before !== change.after);
+            const previousChecks = new Map((other.checks || []).map((check) => [check.name, check]));
+            const currentChecks = new Map((DATA.checks || []).map((check) => [check.name, check]));
+            const checkChanges = [...new Set([...previousChecks.keys(), ...currentChecks.keys()])].flatMap((name) => {
+                const before = previousChecks.get(name), after = currentChecks.get(name);
+                return JSON.stringify(before) === JSON.stringify(after) ? [] : [[name, before?.status || "Absent", after?.status || "Absent",
+                    metaVal(before?.details), metaVal(after?.details)]];
             });
-            if (!added.length && !removed.length && !changed.length && !inputChanges.length && !componentChanges.length && !summaryChanges.length && !cardChanges.length)
+            if (warningChanges.length || checkChanges.length) {
+                let query = "";
+                const results = el("div");
+                const filter = el("select", { class: "input", "aria-label": "Warning change type", onchange: paintWarnings },
+                    ["All warning changes", "New", "Resolved", "Count changed"].map((text) => el("option", { text })));
+                const warningKind = (change) => !change.before ? "New" : !change.after ? "Resolved" : "Count changed";
+                function paintWarnings() {
+                    clear(results);
+                    results.appendChild(paged(warningChanges.filter((change) => (!query || change.message.toLowerCase().includes(query))
+                        && (filter.value === "All warning changes" || filter.value === warningKind(change))), (items) => tableOf(
+                            ["Warning", "Change", "Baseline occurrences", "Current occurrences", "Delta"], items.map((change) => [change.message, warningKind(change), fmt(change.before), fmt(change.after), signed(change.after - change.before)])), "warning messages"));
+                }
+                out.appendChild(section("diagnostics", "Checks and warnings", [
+                    el("p", { class: "count-note", text: `Warnings: ${fmt((other.warnings || []).length)} baseline / ${fmt((DATA.warnings || []).length)} current occurrences; ${currentWarnings.size} distinct current messages` }),
+                    el("div", { class: "toolbar" }, [searchBox("Search warning messages", (value) => { query = value; paintWarnings(); }), filter]), results,
+                    checkChanges.length ? paged(checkChanges, (items) => tableOf(["Check", "Baseline", "Current", "Baseline details", "Current details"], items), "checks") : null
+                ]));
+                paintWarnings();
+            }
+            if (!Array.isArray(other.warnings) || !Array.isArray(other.checks) || !Array.isArray(DATA.warnings) || !Array.isArray(DATA.checks))
+                out.insertBefore(el("p", { class: "notice", text: "Checks and warnings comparison is incomplete: diagnostics were not recorded for one or both builds." }), summary);
+            const sections = [...out.querySelectorAll(":scope > .diff-section")];
+            const navigation = el("nav", { class: "diff-nav", "aria-label": "Comparison sections" });
+            const selectSection = (id) => {
+                sections.forEach((item) => { item.hidden = item.id !== id; });
+                [...navigation.children].forEach((button) => button.setAttribute("aria-pressed", String(button.getAttribute("aria-controls") === id)));
+            };
+            const counts = {
+                "diff-assignments": assignmentChanges.length, "diff-inputs": inputChanges.length,
+                "diff-components": componentChanges.length, "diff-cards": cardChanges.length, "diff-diagnostics": warningChanges.length + checkChanges.length
+            };
+            const labels = { "diff-assignments": "Assignments", "diff-inputs": "Inputs", "diff-components": "Components", "diff-cards": "Data cards", "diff-diagnostics": "Checks & warnings" };
+            sections.forEach((item) => navigation.appendChild(el("button", {
+                class: "btn", "aria-controls": item.id,
+                text: `${labels[item.id]} (${fmt(counts[item.id])})`, onclick: () => selectSection(item.id)
+            })));
+            if (sections.length) { out.insertBefore(navigation, sections[0]); selectSection(sections[0].id); }
+            [
+                [contentChanges.length, "Input changes", `${fmt(pathChanges.length)} path-only changes`, "diff-inputs"],
+                [cardChanges.length, "Data card changes", cardChanges.some((change) => change.members) ? "Tallies grouped by ID" : "", "diff-cards"],
+                [warningChanges.length, "Warning message changes", `${fmt((DATA.warnings || []).length)} current occurrences`, "diff-diagnostics"],
+                [DATA.total_cells - other.total_cells, "Cell delta", `${fmt(other.total_cells)} -> ${fmt(DATA.total_cells)}`],
+                [DATA.total_surfaces - other.total_surfaces, "Surface delta", `${fmt(other.total_surfaces)} -> ${fmt(DATA.total_surfaces)}`]
+            ].forEach(([value, label, sub, target]) => {
+                const metric = kpi(Number.isFinite(value) ? value : null, label, sub);
+                if (label.endsWith("delta") && Number.isFinite(value)) metric.querySelector(".v").textContent = signed(value);
+                if (target && sections.some((item) => item.id === target)) actionable(metric, () => selectSection(target));
+                summary.appendChild(metric);
+            });
+            [...summary.children].slice(0, 3).forEach((metric, index) => {
+                if (!assignmentChanges.length) return;
+                actionable(metric, () => {
+                    selectSection("diff-assignments");
+                    const filter = out.querySelector('select[aria-label="Assignment change type"]');
+                    filter.value = ["added", "removed", "changed"][index];
+                    filter.dispatchEvent(new window.Event("change"));
+                });
+            });
+            if (!added.length && !removed.length && !changed.length && !inputChanges.length && !componentChanges.length && !summaryChanges.length && !cardChanges.length && !warningChanges.length && !checkChanges.length)
                 out.appendChild(el("div", { class: "empty", text: "No differences in recorded build content." }));
         }
-        root.appendChild(el("div", { class: "card" }, el("div", { class: "card-body" }, dz)));
+        root.appendChild(dz);
         root.appendChild(fileInp);
         root.appendChild(out);
     };

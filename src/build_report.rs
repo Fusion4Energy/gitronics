@@ -448,13 +448,17 @@ impl BuildReport {
 
 // ─── Template ─────────────────────────────────────────────────────────────────
 
-/// The viewer is three plain files under `report/`, inlined into one
-/// self-contained document at build time. They are not compiled or bundled —
+/// The viewer and its vendored line-diff library under `report/` are inlined into
+/// one self-contained document at build time. They are not compiled or bundled —
 /// `include_str!` is the whole pipeline — so a Rust-only contributor needs no
 /// JavaScript toolchain, and `cargo publish` needs no build step.
 const TEMPLATE: &str = include_str!("../report/report.html");
 const STYLE: &str = include_str!("../report/report.css");
-const SCRIPT: &str = include_str!("../report/report.js");
+const SCRIPT: &str = concat!(
+    include_str!("../report/vendor/diff.js"),
+    "\n",
+    include_str!("../report/report.js")
+);
 
 const TITLE_MARKER: &str = "{{TITLE}}";
 const STYLE_MARKER: &str = "{{STYLE}}";
@@ -669,6 +673,11 @@ mod tests {
         // CSS and JS assets are inlined.
         assert!(html.contains("--accent"), "stylesheet not inlined");
         assert!(html.contains("report-data"), "viewer script not inlined");
+        assert!(html.contains("diffLines"), "line-diff library not inlined");
+        assert!(
+            html.contains("BSD 3-Clause License"),
+            "vendor license missing"
+        );
     }
 
     #[test]

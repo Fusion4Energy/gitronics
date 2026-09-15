@@ -156,8 +156,7 @@ test("diff reports added, removed and reassigned envelopes", async () => {
   };
   dropzone.dispatchEvent(event);
 
-  // FileReader resolves asynchronously.
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await waitForDiff(panel);
 
   const counts = textOf(document, ".panel.active .kpi .v").map(Number);
   assert.deepEqual(
@@ -165,6 +164,347 @@ test("diff reports added, removed and reassigned envelopes", async () => {
     [1, 1, 1],
     "expected one added, one removed and one changed envelope",
   );
+});
+
+function waitForDiff(panel) {
+  return new Promise((resolve, reject) => {
+    const observer = new panel.ownerDocument.defaultView.MutationObserver(() => {
+      if (!panel.querySelector(".diff-summary, .section-gap > .empty")) return;
+      clearTimeout(timeout);
+      observer.disconnect();
+      resolve();
+    });
+    const timeout = setTimeout(() => {
+      observer.disconnect();
+      reject(new Error("Diff did not finish rendering"));
+    }, 2000);
+    observer.observe(panel, { childList: true, subtree: true });
+  });
+}
+
+async function compareReports(manifest, previous) {
+  const result = boot(manifest);
+  const panel = openTab(result.document, "Diff");
+  const event = new result.window.Event("drop", { bubbles: true });
+  event.dataTransfer = {
+    files: [new result.window.File([JSON.stringify(previous)], "baseline.json")],
+  };
+  panel.querySelector(".dropzone").dispatchEvent(event);
+  await waitForDiff(panel);
+  return { ...result, panel };
+}
+
+test("diff groups repeated substitutions and bounds expanded placements", async () => {
+  const manifest = sampleManifest();
+  manifest.envelope_entries = Array.from({ length: 60 }, (_, index) => ({
+    ...manifest.envelope_entries[0], envelope_name: `placement_${index}`,
+  }));
+  const previous = structuredClone(manifest);
+  previous.envelope_entries.forEach((entry) => { entry.filler_name = "old_filler"; });
+  const { panel, window, errors } = await compareReports(manifest, previous);
+  assert.equal(panel.querySelectorAll(".diff-group").length, 1);
+  const group = panel.querySelector(".diff-group");
+  assert.match(group.querySelector("summary").textContent, /60 placements/);
+  group.open = true;
+  group.dispatchEvent(new window.Event("toggle"));
+  assert.equal(group.querySelectorAll("tbody tr").length, 25);
+  group.querySelector('button[aria-label="Next page"]').click();
+  assert.equal(group.querySelectorAll("tbody tr").length, 25);
+  assert.match(group.textContent, /26-50 of 60/);
+  assert.deepEqual(errors, []);
+});
+
+test("diff filters assignments by field, metadata and either filler name", async () => {
+  const manifest = sampleManifest();
+  const previous = structuredClone(manifest);
+  previous.envelope_entries[0].filler_name = "old_filler";
+  previous.envelope_entries[0].transform = "old_transform";
+  previous.envelope_entries[1].filler_name = "another_filler";
+  previous.envelope_entries[1].metadata.sector = "2";
+  const { panel, window, errors } = await compareReports(manifest, previous);
+  const select = (label, value) => {
+    const control = panel.querySelector(`select[aria-label="${label}"]`);
+    control.value = value;
+    control.dispatchEvent(new window.Event("change"));
+  };
+  select("Assignment change type", "transform");
+  assert.equal(panel.querySelectorAll(".diff-group").length, 1);
+  assert.match(panel.querySelector(".diff-group").textContent, /old_filler/);
+  select("Assignment change type", "all");
+  select("Filter by metadata", "sector");
+  select("Metadata value", "2");
+  assert.match(panel.querySelector(".diff-group").textContent, /another_filler/);
+  select("Metadata value", "");
+  const search = panel.querySelector('input[aria-label="Search envelopes, fillers, or metadata"]');
+  search.value = "old_filler";
+  search.dispatchEvent(new window.Event("input"));
+  assert.equal(panel.querySelectorAll(".diff-group").length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("diff collapses path-only inputs and preserves full provenance", async () => {
+  const manifest = sampleManifest();
+  manifest.evidence.inputs = [
+    { role: "filler", name: "universe_101", path: "new/location/filler.mcnp", sha256: "same" },
+    { role: "source", name: "source", path: "source.mcnp", sha256: "new" },
+  ];
+  const previous = structuredClone(manifest);
+  previous.evidence.inputs[0].path = "old/location/filler.mcnp";
+  previous.evidence.inputs[1].sha256 = "old";
+  const { panel, window, document, errors } = await compareReports(manifest, previous);
+  const paths = panel.querySelector(".diff-path-changes");
+  assert.equal(paths.open, false);
+  assert.equal(paths.querySelectorAll("tbody tr").length, 0);
+  assert.match(paths.textContent, /Path-only changes \(1\)/);
+  assert.match(panel.querySelector("#diff-inputs").textContent, /Content changed/);
+  panel.querySelector('button[aria-controls="diff-inputs"]').click();
+  assert.equal(panel.querySelector("#diff-inputs").hidden, false);
+  paths.open = true;
+  paths.dispatchEvent(new window.Event("toggle"));
+  paths.querySelector(".textbtn").click();
+  const drawer = document.querySelector(".drawer");
+  assert.ok(drawer.textContent.includes("old/location/filler.mcnp"));
+  assert.ok(drawer.textContent.includes("new/location/filler.mcnp"));
+  assert.deepEqual(errors, []);
+});
+
+test("diff compares warning frequencies, resolved messages and check results", async () => {
+  const manifest = sampleManifest();
+  manifest.warnings = ["new warning", "new warning", "recurring", "recurring"];
+  manifest.checks = [{ name: "Validation", status: "failed", details: ["missing reference"] }];
+  const previous = structuredClone(manifest);
+  previous.warnings = ["resolved warning", "recurring"];
+  previous.checks[0] = { name: "Validation", status: "passed", details: [] };
+  const { panel, errors } = await compareReports(manifest, previous);
+  const diagnostics = panel.querySelector("#diff-diagnostics");
+  assert.match(diagnostics.textContent, /2 baseline \/ 4 current occurrences; 2 distinct current messages/);
+  assert.match(diagnostics.textContent, /new warningNew02\+2/);
+  assert.match(diagnostics.textContent, /resolved warningResolved10-1/);
+  assert.match(diagnostics.textContent, /recurringCount changed12\+1/);
+  assert.match(diagnostics.textContent, /Validationpassedfailed/);
+  assert.deepEqual(errors, []);
+});
+
+test("diff does not treat missing hashes as identical content", async () => {
+  const manifest = sampleManifest();
+  manifest.evidence.inputs = [{ role: "filler", name: "universe_101", path: "new.mcnp" }];
+  const previous = structuredClone(manifest);
+  previous.evidence.inputs[0].path = "old.mcnp";
+  const { panel, errors } = await compareReports(manifest, previous);
+  assert.match(panel.textContent, /Content comparison is incomplete/);
+  assert.match(panel.querySelector("#diff-inputs").textContent, /Not comparable/);
+  assert.equal(panel.querySelector(".diff-path-changes"), null);
+  assert.deepEqual(errors, []);
+});
+
+test("diff placement drawers compare both builds including removed envelopes", async () => {
+  const manifest = sampleManifest();
+  const previous = structuredClone(manifest);
+  previous.envelope_entries[0].transform = "BASE_TRANSFORM";
+  previous.envelope_entries[0].metadata.sector = "9";
+  previous.envelope_entries.push({ envelope_name: "removed_placement", filler_name: "universe_101", universe_id: 101 });
+  const { panel, document, window, errors } = await compareReports(manifest, previous);
+  [...panel.querySelectorAll(".diff-modes button")].find((button) => button.textContent === "By envelope").click();
+  [...panel.querySelectorAll("#diff-assignments .textbtn")].find((button) => button.textContent === "env_a").click();
+  const drawer = document.querySelector(".drawer");
+  assert.match(drawer.textContent, /BASE_TRANSFORM/);
+  assert.match(drawer.textContent, /Metadata: sector91/);
+  assert.ok(drawer.querySelectorAll(".diff-changed").length >= 2);
+  assert.ok(drawer.querySelectorAll(".diff-unchanged").length > 0);
+  drawer.querySelector('[aria-label="Close details"]').click();
+  const removed = [...panel.querySelectorAll("#diff-assignments .textbtn")].find((button) => button.textContent === "removed_placement");
+  removed.focus();
+  removed.click();
+  assert.match(drawer.textContent, /removed_placement/);
+  assert.match(drawer.textContent, /universe_101Absent/);
+  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+  assert.equal(drawer.hidden, true);
+  assert.equal(document.activeElement, removed);
+  assert.deepEqual(errors, []);
+});
+
+test("diff compares replacement components through their shared assignments", async () => {
+  const manifest = sampleManifest();
+  const previous = structuredClone(manifest);
+  previous.filler_entries[0].name = "old_component";
+  previous.filler_entries[0].cell_count = 140;
+  previous.filler_entries[0].cell_id_runs = [[7, 12], [20, 40]];
+  previous.envelope_entries.filter((entry) => entry.filler_name).forEach((entry) => { entry.filler_name = "old_component"; });
+  const { panel, document, window, errors } = await compareReports(manifest, previous);
+  const components = panel.querySelector("#diff-components");
+  assert.match(components.textContent, /Assignment replacement/);
+  assert.match(components.textContent, /2 reassigned placements/);
+  const row = [...components.querySelectorAll("tbody tr")].find((row) => row.textContent.includes("Assignment replacement"));
+  row.querySelector("button").click();
+  const drawer = document.querySelector(".drawer");
+  assert.match(drawer.textContent, /cell_count140120/);
+  const runs = [...drawer.querySelectorAll("details")].find((detail) => detail.textContent.includes("cell_id_runs"));
+  runs.open = true;
+  runs.dispatchEvent(new window.Event("toggle"));
+  assert.match(runs.textContent, /\[\[7,12\],\[20,40\]\]/);
+  assert.match(runs.textContent, /250000/);
+  assert.deepEqual(errors, []);
+});
+
+test("diff build summary itemizes lists and distinguishes empty selections", async () => {
+  const manifest = sampleManifest();
+  manifest.tallies = ["flux", "<dose>"];
+  manifest.source = "current_source";
+  const previous = structuredClone(manifest);
+  previous.tallies = [];
+  previous.source = "baseline_source";
+  const { panel, errors } = await compareReports(manifest, previous);
+  const summary = [...panel.querySelectorAll("details")].find((detail) => detail.querySelector("summary").textContent === "Build summary changes");
+  const tallyRow = [...summary.querySelectorAll("tbody tr")].find((row) => row.firstChild.textContent === "tallies");
+  assert.equal(tallyRow.children[1].textContent, "None");
+  assert.deepEqual([...tallyRow.querySelectorAll("li")].map((item) => item.textContent), ["flux", "<dose>"]);
+  assert.equal(tallyRow.querySelector("dose"), null);
+  assert.match(summary.textContent, /sourcebaseline_sourcecurrent_source/);
+  assert.deepEqual(errors, []);
+});
+
+test("diff card list prioritizes modifications and opens safe highlighted line changes", async () => {
+  const manifest = sampleManifest();
+  const context = Array.from({ length: 12 }, (_, index) => `c unchanged ${index}\n`).join("");
+  manifest.evidence.data_cards = [
+    { name: "m1", category: "materials", input: "materials.mcnp", text: `${context}m1 1001 2\n<img src=x onerror=alert(1)>\n` },
+    { name: "f4", category: "tallies", input: "tallies.mcnp", text: "f4:n 1\n" },
+  ];
+  const previous = structuredClone(manifest);
+  previous.evidence.data_cards = [
+    { ...manifest.evidence.data_cards[0], text: `${context}m1 1001 1\n` },
+    { name: "f8", category: "tallies", input: "old.mcnp", text: "f8:n 1\n" },
+  ];
+  const { panel, document, window, errors } = await compareReports(manifest, previous);
+  const cards = panel.querySelector("#diff-cards");
+  assert.match(cards.textContent, /1 modified \/ 1 added \/ 1 removed/);
+  assert.equal(cards.querySelector("pre"), null);
+  assert.equal(cards.querySelector(".textbtn").textContent, "m1");
+  cards.querySelector(".textbtn").click();
+  const drawer = document.querySelector(".drawer");
+  assert.match(drawer.querySelector(".diff-line-removed").textContent, /m1 1001 1/);
+  assert.match(drawer.querySelector(".diff-line-added").textContent, /m1 1001 2/);
+  assert.match(drawer.querySelector(".diff-line-folded").textContent, /9 unchanged lines/);
+  assert.equal(drawer.querySelector("img"), null);
+  const checkbox = drawer.querySelector('input[type="checkbox"]');
+  checkbox.checked = true;
+  checkbox.dispatchEvent(new window.Event("change"));
+  assert.equal(drawer.querySelector(".diff-line-folded"), null);
+  assert.match(drawer.textContent, /c unchanged 0/);
+  drawer.querySelector('[aria-label="Close details"]').click();
+  const filter = cards.querySelector('select[aria-label="Data card change type"]');
+  filter.value = "Added";
+  filter.dispatchEvent(new window.Event("change"));
+  assert.equal(cards.querySelectorAll("tbody tr").length, 1);
+  cards.querySelector(".textbtn").click();
+  assert.equal(drawer.querySelector(".diff-line-removed"), null);
+  assert.match(drawer.querySelector(".diff-line-added").textContent, /f4:n 1/);
+  assert.deepEqual(errors, []);
+});
+
+test("diff omits missing-newline annotations without changing card content", async () => {
+  for (const suffix of ["", "\nc unchanged final line"]) {
+    const manifest = sampleManifest();
+    manifest.evidence.data_cards = [{ name: "M1", category: "Materials", input: "materials.mcnp", text: `M1 1001 2${suffix}` }];
+    const previous = structuredClone(manifest);
+    previous.evidence.data_cards[0].text = `M1 1001 1${suffix}`;
+    const { panel, document, window, errors } = await compareReports(manifest, previous);
+    panel.querySelector("#diff-cards .textbtn").click();
+    const drawer = document.querySelector(".drawer");
+    assert.equal(drawer.querySelector(".diff-line-removed pre").textContent, "M1 1001 1");
+    assert.equal(drawer.querySelector(".diff-line-added pre").textContent, "M1 1001 2");
+    if (suffix) assert.equal(drawer.querySelector(".diff-line-context pre").textContent, "c unchanged final line");
+    assert.doesNotMatch(drawer.textContent, /No newline at end of file/);
+    const full = [...drawer.querySelectorAll("details")].find((detail) => detail.querySelector("summary").textContent === "Full definitions");
+    full.open = true; full.dispatchEvent(new window.Event("toggle"));
+    assert.deepEqual([...full.querySelectorAll("pre")].map((node) => node.textContent), [previous.evidence.data_cards[0].text, manifest.evidence.data_cards[0].text]);
+    assert.deepEqual(errors, []);
+  }
+});
+
+test("diff groups tally changes by ID with unchanged members and per-card comparison", async () => {
+  const manifest = sampleManifest();
+  manifest.evidence.data_cards = [
+    { name: "FC1014", category: "Tallies", input: "flux.tally", text: "FC1014 flux\n" },
+    { name: "FM1014", category: "Tallies", input: "multipliers.tally", text: "FM1014 2\n" },
+    { name: "FMESH1014:N", category: "Tallies", input: "flux.tally", text: "FMESH1014:N GEOM=XYZ\n" },
+    { name: "E1014", category: "Tallies", input: "flux.tally", text: "E1014 0 20\n" },
+    { name: "M1014", category: "Materials", input: "materials", text: "M1014 1001 1\n" },
+  ];
+  const previous = structuredClone(manifest);
+  previous.evidence.data_cards[1].text = "FM1014 1\n";
+  previous.evidence.data_cards = previous.evidence.data_cards.filter((card) => !["E1014", "M1014"].includes(card.name));
+  previous.evidence.data_cards.push({ name: "FT1014", category: "Tallies", input: "flux.tally", text: "FT1014 SCX\n" });
+  const { panel, document, window, errors } = await compareReports(manifest, previous);
+  const cards = panel.querySelector("#diff-cards");
+  assert.equal(cards.querySelectorAll("tbody tr").length, 2);
+  assert.match(cards.textContent, /2 items \(1 tally group\); 4 individual card changes/);
+  const search = cards.querySelector('input[type="search"]');
+  search.value = "FC1014"; search.dispatchEvent(new window.Event("input"));
+  assert.equal(cards.querySelectorAll("tbody tr").length, 1);
+  assert.equal(cards.querySelector(".textbtn").textContent, "Tally 1014");
+  cards.querySelector(".textbtn").click();
+  const drawer = document.querySelector(".drawer");
+  assert.match(drawer.textContent, /3 changed \/ 5 member cards/);
+  assert.equal(drawer.querySelectorAll(".diff-tally-members tbody tr").length, 5);
+  assert.match(drawer.querySelector(".diff-line-removed").textContent, /FM1014 1/);
+  assert.match(drawer.querySelector(".diff-line-added").textContent, /FM1014 2/);
+  const selectMember = (name) => [...drawer.querySelectorAll(".diff-tally-members button")].find((button) => button.textContent === name).click();
+  selectMember("FMESH1014:N");
+  assert.match(drawer.querySelector(".diff-tally-definition").textContent, /Unchanged/);
+  assert.match(drawer.querySelector(".diff-tally-definition").textContent, /GEOM=XYZ/);
+  selectMember("E1014");
+  assert.equal(drawer.querySelector(".diff-line-removed"), null);
+  assert.match(drawer.querySelector(".diff-line-added").textContent, /E1014 0 20/);
+  selectMember("FT1014");
+  assert.equal(drawer.querySelector(".diff-line-added"), null);
+  assert.match(drawer.querySelector(".diff-line-removed").textContent, /FT1014 SCX/);
+  assert.deepEqual(errors, []);
+});
+
+test("diff tally grouping ignores member order and preserves removed tallies and global defaults", async () => {
+  const manifest = sampleManifest();
+  manifest.evidence.data_cards = [
+    { name: "*F24:N", category: "Tallies", input: "flux.tally", text: "*F24:N 1\n" },
+    { name: "FM24", category: "Tallies", input: "flux.tally", text: "FM24 2\n" },
+  ];
+  const previous = structuredClone(manifest);
+  previous.evidence.data_cards.reverse();
+  const unchanged = await compareReports(manifest, previous);
+  assert.equal(unchanged.panel.querySelector("#diff-cards"), null);
+  assert.match(unchanged.panel.textContent, /No differences in recorded build content/);
+  previous.evidence.data_cards.push(
+    { name: "F34:N", category: "Tallies", input: "flux.tally", text: "F34:N 1\n" },
+    { name: "FC34", category: "Tallies", input: "flux.tally", text: "FC34 removed\n" },
+    { name: "E0", category: "Tallies", input: "flux.tally", text: "E0 0 20\n" },
+  );
+  const { panel, document, errors } = await compareReports(manifest, previous);
+  const cards = panel.querySelector("#diff-cards");
+  assert.deepEqual([...cards.querySelectorAll(".textbtn")].map((button) => button.textContent), ["E0", "Tally 34"]);
+  assert.match(cards.textContent, /0 modified \/ 0 added \/ 2 removed/);
+  [...cards.querySelectorAll(".textbtn")].find((button) => button.textContent === "Tally 34").click();
+  assert.match(document.querySelector(".drawer").textContent, /2 changed \/ 2 member cards/);
+  assert.equal(document.querySelector(".drawer .diff-line-added"), null);
+  assert.deepEqual([...unchanged.errors, ...errors], []);
+});
+
+test("diff supports identical legacy reports and rejects unsupported schemas", async () => {
+  const manifest = sampleManifest();
+  manifest.schema_version = 1;
+  delete manifest.evidence;
+  delete manifest.warnings;
+  delete manifest.checks;
+  const { panel, window, errors } = await compareReports(manifest, structuredClone(manifest));
+  assert.match(panel.textContent, /No differences in recorded build content/);
+  assert.match(panel.textContent, /Content comparison is incomplete/);
+  assert.match(panel.textContent, /diagnostics were not recorded/);
+  const event = new window.Event("drop", { bubbles: true });
+  event.dataTransfer = { files: [new window.File([JSON.stringify({ schema_version: 99 })], "unsupported.json")] };
+  panel.querySelector(".dropzone").dispatchEvent(event);
+  await waitForDiff(panel);
+  assert.match(panel.textContent, /Unsupported report/);
+  assert.equal(panel.querySelector(".diff-summary"), null);
+  assert.deepEqual(errors, []);
 });
 
 test("a deep link opens the tab it names", () => {
@@ -186,8 +526,11 @@ test("diff shows transform values and detects unchanged-name content", async () 
   const event = new window.Event("drop", { bubbles: true });
   event.dataTransfer = { files: [new window.File([JSON.stringify(previous)], "previous.json")] };
   panel.querySelector(".dropzone").dispatchEvent(event);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await waitForDiff(panel);
   assert.deepEqual(errors, []);
+  const group = panel.querySelector(".diff-group");
+  group.open = true;
+  group.dispatchEvent(new window.Event("toggle"));
   assert.ok(panel.textContent.includes("(999)"));
   assert.ok(panel.textContent.includes(manifest.envelope_entries[0].transform));
   assert.ok(panel.textContent.includes("Content changed"));
@@ -390,6 +733,44 @@ test("data files own grouped card IDs with definitions loaded on demand", () => 
   selected.open = true; selected.dispatchEvent(new window.Event("toggle"));
   assert.ok(panel.querySelector(".data-file-list").textContent.includes("NPS 100"));
   assert.ok(!panel.querySelector(".data-file-list").textContent.includes("*TR40"));
+  assert.deepEqual(errors, []);
+});
+
+test("data cards group tally members by ID without hiding matching context or file ownership", () => {
+  const manifest = sampleManifest();
+  manifest.materials = []; manifest.tallies = ["flux", "other"]; delete manifest.source;
+  manifest.evidence.inputs = [{ name: "flux", role: "tallies", path: "flux.tally" }, { name: "other", role: "tallies", path: "other.tally" }];
+  manifest.evidence.data_cards = [
+    { name: "FC1014", category: "Tallies", input: "flux.tally", text: "FC1014 flux" },
+    { name: "FM1014", category: "Tallies", input: "flux.tally", text: "FM1014 1" },
+    { name: "FMESH1014:N", category: "Tallies", input: "flux.tally", text: "FMESH1014:N GEOM=XYZ" },
+    { name: "E0", category: "Tallies", input: "flux.tally", text: "E0 0 20" },
+    { name: "DF1014", category: "Tallies", input: "other.tally", text: "DF1014 1 2" },
+    { name: "M1014", category: "Materials", input: "flux.tally", text: "M1014 1001 1" },
+  ];
+  const { document, window, errors } = boot(manifest);
+  const panel = openTab(document, "Data Cards");
+  assert.match(panel.textContent, /1 tally, 4 cards/);
+  assert.equal(panel.querySelectorAll(".data-tally-entry").length, 0);
+  const search = panel.querySelector('input[type="search"]');
+  search.value = "FM1014"; search.dispatchEvent(new window.Event("input"));
+  assert.equal(panel.querySelectorAll(".data-file").length, 1);
+  const tally = panel.querySelector(".data-tally-entry");
+  assert.equal(tally.querySelector("summary").textContent, "Tally 1014 (3 cards)");
+  assert.equal(tally.querySelectorAll(".card-details").length, 0);
+  tally.open = true; tally.dispatchEvent(new window.Event("toggle"));
+  assert.deepEqual([...tally.querySelectorAll(".data-card-entry > summary")].map((item) => item.textContent), ["FMESH1014:N", "FC1014", "FM1014"]);
+  assert.equal(tally.querySelector("mark").textContent, "FM1014");
+  const member = tally.querySelector(".data-card-entry");
+  member.open = true; member.dispatchEvent(new window.Event("toggle"));
+  assert.match(member.textContent, /GEOM=XYZ/);
+  search.value = "1014"; search.dispatchEvent(new window.Event("input"));
+  assert.equal(panel.querySelectorAll(".data-tally-entry").length, 2);
+  assert.equal(panel.querySelectorAll(".data-card-entry").length, 1);
+  assert.equal(panel.querySelector(".data-card-entry > summary").textContent, "M1014");
+  search.value = "E0"; search.dispatchEvent(new window.Event("input"));
+  assert.equal(panel.querySelectorAll(".data-tally-entry").length, 0);
+  assert.equal(panel.querySelector(".data-card-entry > summary").textContent, "E0");
   assert.deepEqual(errors, []);
 });
 

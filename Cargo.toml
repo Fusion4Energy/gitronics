@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Build MCNP neutronics models from modular components"
 license = "EUPL-1.2"
-# The published crate needs only the three files `include_str!` inlines; the
+# The published crate includes the viewer and vendored library it inlines; the
 # viewer's test harness and its dependencies are development-only.
 exclude = [
     "report/test",

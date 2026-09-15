@@ -14,7 +14,8 @@ const REPORT_DIR = join(HERE, "..");
 
 const TEMPLATE = readFileSync(join(REPORT_DIR, "report.html"), "utf8");
 const STYLE = readFileSync(join(REPORT_DIR, "report.css"), "utf8");
-const SCRIPT = readFileSync(join(REPORT_DIR, "report.js"), "utf8");
+const SCRIPT = ["vendor/diff.js", "report.js"]
+  .map((path) => readFileSync(join(REPORT_DIR, path), "utf8")).join("\n");
 
 /** Mirrors `escape_json_for_script` in src/build_report.rs. */
 function escapeJsonForScript(json) {
@@ -88,13 +89,13 @@ function stubCanvas(window) {
       save: record("save"),
       restore: record("restore"),
       measureText: () => ({ width: 0 }),
-      set fillStyle(_) {}, get fillStyle() { return "#000"; },
-      set strokeStyle(_) {}, get strokeStyle() { return "#000"; },
-      set lineWidth(_) {}, get lineWidth() { return 1; },
-      set font(_) {}, get font() { return "10px monospace"; },
-      set globalAlpha(_) {}, get globalAlpha() { return 1; },
-      set textAlign(_) {}, get textAlign() { return "center"; },
-      set textBaseline(_) {}, get textBaseline() { return "middle"; },
+      set fillStyle(_) { }, get fillStyle() { return "#000"; },
+      set strokeStyle(_) { }, get strokeStyle() { return "#000"; },
+      set lineWidth(_) { }, get lineWidth() { return 1; },
+      set font(_) { }, get font() { return "10px monospace"; },
+      set globalAlpha(_) { }, get globalAlpha() { return 1; },
+      set textAlign(_) { }, get textAlign() { return "center"; },
+      set textBaseline(_) { }, get textBaseline() { return "middle"; },
     };
   };
 }
@@ -121,9 +122,9 @@ export function boot(manifest, { hash = "" } = {}) {
       stubCanvas(window);
       // jsdom logs "Not implemented" for these; they are irrelevant to the
       // page's behaviour, and stubbing them keeps the error assertion strict.
-      window.scrollTo = () => {};
+      window.scrollTo = () => { };
       window.URL.createObjectURL = () => "blob:stub";
-      window.URL.revokeObjectURL = () => {};
+      window.URL.revokeObjectURL = () => { };
     },
   });
 

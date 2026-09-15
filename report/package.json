@@ -1,14 +1,16 @@
 {
   "name": "gitronics-report",
   "private": true,
-  "description": "Tests for the gitronics build-report viewer. Not a build step: report.html, report.css and report.js are inlined verbatim by src/build_report.rs via include_str!.",
+  "description": "Tests for the offline build-report viewer. Rust inlines report.html, report.css, report.js and the pinned vendor/diff.js asset without a Node.js build step.",
   "type": "module",
   "scripts": {
     "test": "node --test 'test/*.test.mjs'",
     "check": "node --check report.js",
-    "lint": "eslint report.js test"
+    "lint": "eslint report.js test",
+    "vendor:diff": "node --input-type=module -e \"import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'; mkdirSync('vendor',{recursive:true}); writeFileSync('vendor/diff.js','/*\\n'+readFileSync('node_modules/diff/LICENSE','utf8')+'\\n*/\\n'+readFileSync('node_modules/diff/dist/diff.min.js','utf8'));\""
   },
   "devDependencies": {
+    "diff": "9.0.0",
     "eslint": "^9.39.5",
     "jsdom": "^26.0.0"
   }
