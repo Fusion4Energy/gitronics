@@ -716,6 +716,8 @@ td.muted {
 /* ── ID memory map (zoomable canvas) ────────────────────────────────────── */
 .idmap-lane {
     margin-bottom: 22px;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .idmap-controls {
@@ -735,7 +737,7 @@ td.muted {
     height: 96px;
     display: block;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 8px;
     background: var(--surface-2);
     cursor: grab;
     touch-action: none;

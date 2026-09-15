@@ -59,7 +59,11 @@ fn report_tracks_mixed_cards_content_changes_and_failed_validation() {
     let shell = dir.path().join("shell.mcnp");
     fs::write(&shell, "shell\n1 1 -1 -1 $ @env: empty\n\n1 so 5\n\n").unwrap();
     let cards = dir.path().join("mixed.mat");
-    fs::write(&cards, "mixed\nM1 1001 1\n*TR40 0 0 0\nMODE N P\nNPS 100\n").unwrap();
+    fs::write(
+        &cards,
+        "mixed\nM1 1001 1\n*TR40 0 0 0\nMODE N P\nNPS 100\nF4:N 1\n",
+    )
+    .unwrap();
     let output = dir.path().join("output");
     let read_report = || -> serde_json::Value {
         serde_json::from_str(&fs::read_to_string(output.join("build_report.json")).unwrap())
@@ -68,6 +72,15 @@ fn report_tracks_mixed_cards_content_changes_and_failed_validation() {
     build_model(&config, &output).unwrap();
     let first = read_report();
     let inventory = first["evidence"]["data_cards"].as_array().unwrap();
+    assert_eq!(
+        first["envelope_structure"]["universe_id_runs"],
+        serde_json::json!([[0, 0]])
+    );
+    assert!(
+        inventory
+            .iter()
+            .any(|card| card["name"] == "F4:N" && card["category"] == "Tallies")
+    );
     assert!(
         inventory
             .iter()

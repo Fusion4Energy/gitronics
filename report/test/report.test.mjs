@@ -256,6 +256,102 @@ test("ID lookup resolves exact owners and gaps", () => {
   assert.deepEqual(errors, []);
 });
 
+test("ID maps resolve data definitions, sparse gaps, and shared universe owners", async () => {
+  const manifest = sampleManifest();
+  manifest.envelope_structure.universe_id_runs = [[0, 0], [101, 101]];
+  manifest.filler_entries[0].universe_id_runs = [[101, 102], [105, 105]];
+  manifest.evidence = {
+    inputs: [{ name: "mixed", path: "mixed.mat", role: "materials" }, { name: "flux", path: "flux.tally", role: "tallies" }],
+    data_cards: [
+      { name: "M1", input: "mixed.mat", text: "M1 1001 1" },
+      { name: "M3", input: "mixed.mat", text: "M3 8016 1" },
+      { name: "MT2", input: "mixed.mat", text: "MT2 lwtr" },
+      { name: "*TR40", input: "mixed.mat", text: "*TR40 0 0 0" },
+      { name: "TR42", input: "mixed.mat", text: "TR42 0 0 0" },
+      { name: "F4:N", input: "flux.tally", text: "F4:N 1" },
+      { name: "F4:P", input: "flux.tally", text: "F4:P 1" },
+      { name: "FMESH14:N", input: "flux.tally", text: "FMESH14:N GEOM=XYZ" },
+      { name: "FC5", input: "flux.tally", text: "FC5 comment" }
+    ]
+  };
+  const { document, window, errors } = boot(manifest);
+  const panel = openTab(document, "ID Map");
+  assert.equal(panel.querySelectorAll("canvas").length, 6);
+  const lookup = (label, id) => {
+    const input = panel.querySelector(`[aria-label="Find ${label} ids"]`);
+    input.value = String(id);
+    input.closest("form").dispatchEvent(new window.Event("submit", { cancelable: true }));
+    return input.closest(".idmap-lane").querySelector(".id-lookup-result");
+  };
+  assert.match(lookup("material", 1).textContent, /mixed/);
+  assert.match(lookup("material", 2).textContent, /unused/);
+  const result = lookup("transformation", 40);
+  assert.match(result.textContent, /mixed/);
+  result.querySelector("button").click();
+  assert.match(document.querySelector(".drawer").textContent, /\*TR40 0 0 0/);
+  assert.match(document.querySelector(".drawer").textContent, /mixed.mat/);
+  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+  assert.match(lookup("transformation", 41).textContent, /unused/);
+  lookup("tally", 4).querySelector("button").click();
+  assert.match(document.querySelector(".drawer").textContent, /F4:N 1/);
+  assert.match(document.querySelector(".drawer").textContent, /F4:P 1/);
+  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+  assert.match(lookup("tally", 5).textContent, /unused/);
+  assert.match(lookup("tally", 14).textContent, /flux/);
+  assert.match(lookup("universe", 0).textContent, /Envelope structure/);
+  assert.match(lookup("universe", 101).textContent, /universe_101, Envelope structure/);
+  assert.match(lookup("universe", 103).textContent, /unused/);
+  lookup("universe", 105).querySelector("button").click();
+  assert.match(document.querySelector(".drawer").textContent, /universe_101/);
+  await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  assert.match(panel.querySelector('[data-id-kind="Tally ids"] .mono').textContent, /2 used/);
+  assert.match(panel.querySelector('[data-id-kind="Universe ids"] .mono').textContent, /4 used/);
+  assert.deepEqual(errors, []);
+});
+
+test("ID maps retain overlapping and duplicate owners without inflating counts", async () => {
+  const manifest = sampleManifest();
+  manifest.envelope_structure.universe_id_runs = [[0, 4]];
+  manifest.filler_entries[0].universe_id_runs = [[1, 2]];
+  manifest.evidence = {
+    data_cards: [
+      { name: "M1", input: "first.mat", text: "M1 1001 1" },
+      { name: "M1", input: "second.mat", text: "M1 1002 1" }
+    ]
+  };
+  const { document, window, errors } = boot(manifest);
+  const panel = openTab(document, "ID Map");
+  const material = panel.querySelector('[aria-label="Find material ids"]');
+  material.value = "1"; material.closest("form").dispatchEvent(new window.Event("submit", { cancelable: true }));
+  const lane = material.closest(".idmap-lane");
+  assert.match(lane.querySelector(".id-lookup-result").textContent, /first.mat, second.mat/);
+  assert.equal(lane.querySelectorAll(".id-lookup-result button").length, 2);
+  lane.querySelectorAll(".id-lookup-result button")[1].click();
+  assert.match(document.querySelector(".drawer").textContent, /M1 1002 1/);
+  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+  const universe = panel.querySelector('[aria-label="Find universe ids"]');
+  universe.value = "3"; universe.closest("form").dispatchEvent(new window.Event("submit", { cancelable: true }));
+  assert.match(universe.closest(".idmap-lane").querySelector(".id-lookup-result").textContent, /Envelope structure/);
+  await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  assert.match(lane.querySelector(".mono").textContent, /1 used/);
+  assert.match(universe.closest(".idmap-lane").querySelector(".mono").textContent, /5 used/);
+  assert.deepEqual(errors, []);
+});
+
+test("ID maps distinguish absent definitions from inventories not recorded", () => {
+  const manifest = sampleManifest();
+  delete manifest.evidence;
+  delete manifest.envelope_structure.universe_id_runs;
+  const { document, errors } = boot(manifest);
+  const panel = openTab(document, "ID Map");
+  assert.match(panel.querySelector('[data-id-kind="Material ids"]').textContent, /not recorded/);
+  assert.match(panel.querySelector('[data-id-kind="Universe ids"]').textContent, /not recorded/);
+  manifest.evidence = { data_cards: [] };
+  const empty = boot(manifest);
+  assert.match(openTab(empty.document, "ID Map").querySelector('[data-id-kind="Tally ids"]').textContent, /No IDs defined/);
+  assert.deepEqual([...errors, ...empty.errors], []);
+});
+
 test("data files own grouped card IDs with definitions loaded on demand", () => {
   const manifest = sampleManifest();
   manifest.materials = ["mixed"]; manifest.source = "source"; manifest.tallies = [];

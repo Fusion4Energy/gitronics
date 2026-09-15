@@ -694,30 +694,91 @@
         const body = el("div", { class: "card-body section-gap" });
         root.appendChild(el("div", { class: "card" }, [
             el("div", { class: "card-head" }, [el("h2", { text: "Card-ID memory map" }),
-            el("span", { class: "spring" }),
-            el("span", { class: "muted count-note", text: "Exact id positions, colored by universe (envelope structure in grey). Scroll to zoom, drag to pan; zoom in to see every individual id." })]),
+            el("span", { class: "spring" })]),
             body
         ]));
-        body.appendChild(zoomLane("Cell ids", "cell_id_runs"));
-        body.appendChild(zoomLane("Surface ids", "surface_id_runs"));
+        body.appendChild(zoomLane("Cell ids", geometrySegments("cell_id_runs")));
+        body.appendChild(zoomLane("Surface ids", geometrySegments("surface_id_runs")));
+        const inventoryMissing = !Array.isArray(evidence.data_cards);
+        for (const [title, pattern] of [["Material ids", /^M(\d+)(?::.*)?$/i], ["Tally ids", /^\*?(?:F|FMESH)(\d+)(?::.*)?$/i], ["Transformation ids", /^\*?TR(\d+)(?::.*)?$/i]]) {
+            body.appendChild(zoomLane(title, dataSegments(pattern), inventoryMissing ? "Card inventory was not recorded in this report." : "No IDs defined."));
+        }
+        const universeMissing = [...fillers, ...(envelopeStructure ? [envelopeStructure] : [])].some((entry) => !Array.isArray(entry.universe_id_runs));
+        body.appendChild(zoomLane("Universe ids", universeMissing ? [] : geometrySegments("universe_id_runs"), universeMissing ? "Universe membership was not recorded in this report." : "No IDs defined."));
     };
 
-    function zoomLane(title, key) {
-        // Flatten every filler's runs, plus the envelope structure's own runs,
-        // into disjoint segments over the id axis.
-        const segs = [];
-        fillers.forEach((f) => {
-            (f[key] || []).forEach((r) => { segs.push({ s: r[0], e: r[1], f: f }); });
+    function geometrySegments(key) {
+        return [...fillers, ...(envelopeStructure ? [envelopeStructure] : [])].flatMap((entry) => {
+            const isEnv = entry === envelopeStructure;
+            const owner = {
+                name: entry.name, color: isEnv ? null : uColor(entry.universe_id),
+                inspect: isEnv ? null : () => openFiller(entry.name)
+            };
+            return (entry[key] || []).map(([start, end]) => ({ s: start, e: end, owner }));
         });
-        if (envelopeStructure) {
-            (envelopeStructure[key] || []).forEach((r) => { segs.push({ s: r[0], e: r[1], f: envelopeStructure, isEnv: true }); });
-        }
-        segs.sort((a, b) => { return a.s - b.s; });
+    }
 
-        const wrap = el("div", { class: "idmap-lane" });
+    function dataSegments(pattern) {
+        const owners = new Map();
+        const segments = [];
+        for (const card of dataCards) {
+            const match = pattern.exec(card.name);
+            if (!match) continue;
+            const id = Number(match[1]);
+            if (!Number.isSafeInteger(id) || id <= 0) continue;
+            if (!owners.has(card.input)) {
+                const input = inputs.find((entry) => entry.path === card.input);
+                const cards = new Map();
+                owners.set(card.input, {
+                    name: input ? input.name : card.input, path: card.input,
+                    color: uColor(card.input), cards,
+                    inspect: (selected) => openMappedCards(card.input, cards.get(selected) || [])
+                });
+            }
+            const owner = owners.get(card.input);
+            if (!owner.cards.has(id)) owner.cards.set(id, []);
+            owner.cards.get(id).push(card);
+            segments.push({ s: id, e: id, owner });
+        }
+        return segments;
+    }
+
+    function openMappedCards(path, cards) {
+        clear(drawer);
+        drawer.appendChild(el("div", { class: "drawer-head" }, [el("h3", { class: "spring", text: cards.map((card) => card.name).join(", ") }),
+        el("button", { class: "iconbtn", "aria-label": "Close details", text: "\u00d7", onclick: closeDrawer })]));
+        drawer.appendChild(el("div", { class: "drawer-body card-details" }, [el("div", { class: "muted mono", text: path }),
+        ...cards.map((card) => el("pre", { text: card.text }))]));
+        revealDrawer({ envelope: null, filler: null });
+    }
+
+    function ownedSegments(ranges) {
+        const events = new Map();
+        for (const range of ranges) {
+            for (const [position, delta] of [[range.s, 1], [range.e + 1, -1]]) {
+                if (!events.has(position)) events.set(position, []);
+                events.get(position).push({ owner: range.owner, delta });
+            }
+        }
+        const active = new Map(), segments = [];
+        let previous = null;
+        for (const [position, changes] of [...events].sort(([left], [right]) => left - right)) {
+            if (previous !== null && previous < position && active.size) segments.push({ s: previous, e: position - 1, owners: [...active.keys()] });
+            for (const { owner, delta } of changes) {
+                const count = (active.get(owner) || 0) + delta;
+                if (count) active.set(owner, count); else active.delete(owner);
+            }
+            previous = position;
+        }
+        return segments;
+    }
+
+    function zoomLane(title, ranges, emptyText = "No id data available.") {
+        const segs = ownedSegments(ranges);
+        const wrap = el("div", { class: "idmap-lane", "data-id-kind": title });
         if (!segs.length) {
             wrap.appendChild(el("div", { class: "lane-title", text: title }));
-            wrap.appendChild(el("div", { class: "empty", text: "No id data available." }));
+            wrap.appendChild(el("div", { class: "empty", text: emptyText }));
             return wrap;
         }
 
@@ -735,6 +796,15 @@
         const readout = el("span", { class: "count-note mono" });
         const lookup = el("input", { class: "input", type: "number", min: gmin, max: gmax, step: 1, "aria-label": `Find ${title.toLowerCase()}`, placeholder: "Card ID" });
         const lookupResult = el("div", { class: "id-lookup-result", "aria-live": "polite" });
+        function showLookup(id) {
+            clear(lookupResult);
+            const segment = segAt(id);
+            if (!segment) { lookupResult.textContent = `${id}: unused`; return; }
+            lookupResult.appendChild(el("span", { text: `${id}: ${segment.owners.map((owner) => owner.name).join(", ")}` }));
+            for (const owner of segment.owners) {
+                if (owner.inspect) lookupResult.appendChild(el("button", { class: "btn", type: "button", text: segment.owners.length > 1 ? `Inspect ${owner.name}` : "Inspect owner", onclick: () => owner.inspect(id) }));
+            }
+        }
         const lookupForm = el("form", {
             class: "toolbar", onsubmit: (event) => {
                 event.preventDefault(); clear(lookupResult);
@@ -743,12 +813,11 @@
                     lookupResult.textContent = `Enter an integer from ${gmin} to ${gmax}.`; return;
                 }
                 vs = id - 8; ve = id + 9; clampView(); schedule();
-                const segment = segAt(id);
-                lookupResult.appendChild(el("span", { text: segment ? `${id}: ${segment.f.name}` : `${id}: unused` }));
-                if (segment && !segment.isEnv) lookupResult.appendChild(el("button", { class: "btn", type: "button", text: "Inspect owner", onclick: () => openFiller(segment.f.name) }));
+                showLookup(id);
             }
         }, [lookup, el("button", { class: "iconbtn", type: "submit", title: "Find card ID", "aria-label": "Find card ID" }, icon("search"))]);
-        const laneTitle = `${title} · ${fillers.length} fillers${envelopeStructure ? " + envelope structure" : ""}`;
+        const owners = new Set(ranges.map((range) => range.owner));
+        const laneTitle = `${title} · ${owners.size} owner${owners.size === 1 ? "" : "s"}`;
         const controls = el("div", { class: "idmap-controls" }, [
             el("div", { class: "lane-title", text: laneTitle }),
             el("span", { class: "spring" }),
@@ -810,8 +879,10 @@
                 const x0 = Math.max(0, X(sg.s));
                 const x1 = Math.min(W, X(sg.e + 1));
                 if (x1 <= x0) continue;
-                ctx.fillStyle = sg.isEnv ? cText3 : uColor(sg.f.universe_id);
-                ctx.fillRect(x0, laneTop, Math.max(1, x1 - x0), laneH);
+                sg.owners.forEach((owner, index) => {
+                    ctx.fillStyle = owner.color || cText3;
+                    ctx.fillRect(x0, laneTop + index * laneH / sg.owners.length, Math.max(1, x1 - x0), laneH / sg.owners.length);
+                });
             }
 
             const ppid = W / (ve - vs); // pixels per id
@@ -882,9 +953,8 @@
             hoverId = id;
             const seg = segAt(id);
             if (seg) {
-                showTip(`<b>${esc(seg.f.name)}</b><br>id ${fmt(id)}${seg.isEnv ? "" : ` · u${seg.f.universe_id}`
-                    }<br>run ${fmt(seg.s)}–${fmt(seg.e)} (${fmt(seg.e - seg.s + 1)} ids)`, e.clientX, e.clientY);
-                canvas.style.cursor = seg.isEnv ? "default" : "pointer";
+                showTip(`<b>${title}: ${fmt(id)}</b><br>${seg.owners.map((owner) => `${esc(owner.name)}${owner.path ? `<br>${esc(owner.path)}` : ""}`).join("<br>")}<br>run ${fmt(seg.s)}–${fmt(seg.e)}`, e.clientX, e.clientY);
+                canvas.style.cursor = "pointer";
             } else { hideTip(); canvas.style.cursor = "grab"; }
             schedule();
         });
@@ -892,8 +962,10 @@
             dragging = false;
             if (!moved) {
                 const rect = canvas.getBoundingClientRect();
-                const seg = segAt(Math.floor(idAtPx(e.clientX - rect.left, canvas.clientWidth)));
-                if (seg && !seg.isEnv) { hideTip(); openFiller(seg.f.name); }
+                const id = Math.floor(idAtPx(e.clientX - rect.left, canvas.clientWidth));
+                const seg = segAt(id);
+                hideTip(); showLookup(id);
+                if (seg && seg.owners.length === 1 && seg.owners[0].inspect) seg.owners[0].inspect(id);
             }
         });
         canvas.addEventListener("pointerleave", () => { hoverId = null; dragging = false; hideTip(); schedule(); });

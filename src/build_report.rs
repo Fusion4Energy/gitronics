@@ -69,6 +69,7 @@ pub struct FillerEntry {
     pub surface_id_runs: Vec<[i64; 2]>,
     /// Distinct, sorted material numbers referenced by this filler's cells.
     pub materials: Vec<i64>,
+    pub universe_id_runs: Vec<[i64; 2]>,
     /// Names of the envelopes this filler fills.
     pub envelopes: Vec<EnvelopeName>,
     /// Arbitrary, project-defined metadata (any keys the user chose to record).
@@ -88,6 +89,7 @@ pub struct EnvelopeStructureStats {
     /// The exact surface ids used by the envelope structure file, run-length
     /// encoded as inclusive `[start, end]`.
     pub surface_id_runs: Vec<[i64; 2]>,
+    pub universe_id_runs: Vec<[i64; 2]>,
 }
 
 /// The complete build-report manifest.
@@ -128,6 +130,7 @@ struct ModelStats {
     /// Exact surface ids used, run-length encoded as inclusive `[start, end]`.
     surface_id_runs: Vec<[i64; 2]>,
     materials: Vec<i64>,
+    universe_id_runs: Vec<[i64; 2]>,
 }
 
 pub(crate) struct BuildSnapshot {
@@ -150,9 +153,16 @@ pub(crate) struct BuildSnapshot {
 /// a model in a single pass over its cells and surfaces.
 fn model_stats(model: &Model) -> ModelStats {
     let mut cell_ids = Vec::new();
+    let mut universes = Vec::new();
     let mut materials: BTreeSet<i64> = BTreeSet::new();
     for cell in model.cells() {
         cell_ids.push(cell.id().unwrap_or_default());
+        if let Some(universe) = cell
+            .universe()
+            .or_else(|| cell.like().is_none().then_some(0))
+        {
+            universes.extend(universe.checked_abs());
+        }
         if let Some(m) = cell.material()
             && m != 0
         {
@@ -171,6 +181,7 @@ fn model_stats(model: &Model) -> ModelStats {
         cell_id_runs: runs_from_ids(cell_ids),
         surface_id_runs: runs_from_ids(surface_ids),
         materials: materials.into_iter().collect(),
+        universe_id_runs: runs_from_ids(universes),
     }
 }
 
@@ -276,6 +287,7 @@ impl BuildSnapshot {
                     cell_id_runs: stats.cell_id_runs,
                     surface_id_runs: stats.surface_id_runs,
                     materials: stats.materials,
+                    universe_id_runs: stats.universe_id_runs,
                     envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
                     metadata: project_manager
                         .filler_metadata(name)
@@ -318,6 +330,7 @@ impl BuildSnapshot {
                 surface_count: envelope_stats.surface_count,
                 cell_id_runs: envelope_stats.cell_id_runs,
                 surface_id_runs: envelope_stats.surface_id_runs,
+                universe_id_runs: envelope_stats.universe_id_runs,
             },
             envelope_entries,
             filler_entries,
@@ -524,6 +537,7 @@ mod tests {
                 surface_count: 600,
                 cell_id_runs: vec![[1, 379], [500, 500]],
                 surface_id_runs: vec![[1, 599]],
+                universe_id_runs: vec![[0, 0]],
             },
             envelope_entries: vec![
                 EnvelopeEntry {
@@ -567,6 +581,7 @@ mod tests {
                 cell_id_runs: vec![[250000, 250041], [250100, 250178]],
                 surface_id_runs: vec![[250000, 250199]],
                 materials: vec![110, 907],
+                universe_id_runs: vec![[101, 101]],
                 envelopes: vec![EnvelopeName::new("env_a"), EnvelopeName::new("env_b")],
                 metadata: meta(&[
                     ("description", json!("Central solenoid")),
@@ -600,6 +615,22 @@ mod tests {
     }
 
     // ── Model statistics ──────────────────────────────────────────────────────
+
+    #[test]
+    fn model_stats_collects_root_nested_and_negative_universes() {
+        let model =
+            Model::parse("t\n1 0 -1\n2 0 -1 u=10\n3 0 -1 u=-12\n4 0 -1 u=10 fill=99\n\n1 so 5\n\n");
+        assert_eq!(
+            model_stats(&model).universe_id_runs,
+            vec![[0, 0], [10, 10], [12, 12]]
+        );
+        let inherited =
+            Model::parse("t\n1 0 -1 u=10\n2 LIKE 1 BUT imp:n=1\n3 LIKE 2 BUT u=12\n\n1 so 5\n\n");
+        assert_eq!(
+            model_stats(&inherited).universe_id_runs,
+            vec![[10, 10], [12, 12]]
+        );
+    }
 
     #[test]
     fn model_stats_counts_cards_and_collects_materials() {
