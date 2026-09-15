@@ -983,6 +983,451 @@ footer.foot {
 
 @media (max-width: 640px) {
     .provenance {
-        display: none;
+        display: flex;
+    }
+}
+
+.report-heading,
+.attention {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.report-heading h1 {
+    font-size: 1.4rem;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.attention {
+    border-block: 1px solid var(--border);
+    padding: 14px 0;
+}
+
+.panel>.card {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+}
+
+.panel>.card>.card-body {
+    padding-inline: 0;
+}
+
+.card {
+    border-radius: 8px;
+}
+
+.detail-block {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 0;
+}
+
+.detail-block>summary {
+    cursor: pointer;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.detail-block>pre,
+.card-details {
+    margin-top: 12px;
+}
+
+pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: .8rem;
+}
+
+.card-details {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.data-file-list {
+    margin-top: 18px;
+}
+
+.data-file {
+    padding: 16px 0;
+}
+
+.data-file-name {
+    font-size: 1rem;
+}
+
+.data-file-role {
+    margin-left: 16px;
+    font-size: .78rem;
+    color: var(--text-2);
+    font-weight: 500;
+}
+
+.data-file-path,
+.data-file-counts {
+    display: block;
+    margin: 4px 0 0 18px;
+    font-size: .8rem;
+    font-weight: 400;
+}
+
+.data-file-path {
+    color: var(--text-3);
+}
+
+.data-file-counts {
+    color: var(--text-2);
+}
+
+.data-file-content {
+    padding: 12px 0 0 18px;
+}
+
+.data-card-group {
+    margin-bottom: 18px;
+}
+
+.data-card-group h3 {
+    font-size: .85rem;
+    margin: 8px 0;
+}
+
+.card-identifiers {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+    gap: 4px 12px;
+}
+
+.data-card-entry {
+    min-width: 0;
+    padding: 5px 0;
+    border: 0;
+}
+
+.data-card-entry>summary {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    color: var(--accent);
+}
+
+.data-card-entry[open] {
+    grid-column: 1 / -1;
+    border-block: 1px solid var(--border);
+    padding: 10px 0;
+}
+
+.data-card-entry mark {
+    color: var(--text);
+    background: var(--warn-weak);
+}
+
+@media (max-width: 700px) {
+    .data-file-role {
+        display: block;
+        margin: 4px 0 0 18px;
+    }
+
+    .data-file-content {
+        padding-left: 0;
+    }
+}
+
+.textbtn {
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+    padding: 4px;
+    overflow-wrap: anywhere;
+}
+
+.textbtn:hover {
+    text-decoration: underline;
+}
+
+.notice {
+    border-left: 3px solid var(--warn);
+    padding: 10px 14px;
+    background: var(--warn-weak);
+}
+
+.danger {
+    color: var(--danger);
+    background: var(--danger-weak);
+}
+
+.id-lookup-result {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    min-height: 28px;
+}
+
+.idmap-lane form .input {
+    width: 180px;
+}
+
+.cov-cell {
+    padding: 0;
+    border: 1px solid transparent;
+    min-width: 0;
+}
+
+.cov-cell:focus-visible {
+    outline-offset: 2px;
+}
+
+.drawer-open {
+    overflow: hidden;
+}
+
+.drawer {
+    max-width: 100%;
+}
+
+.drawer .leaf {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.drawer h3,
+.drawer dd,
+.drawer .en {
+    overflow-wrap: anywhere;
+}
+
+.drawer .tablewrap {
+    width: 100%;
+}
+
+.drawer td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.drawer .tablewrap table {
+    table-layout: fixed;
+}
+
+.drawer .tablewrap td:first-child {
+    width: 35%;
+}
+
+.chip {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+button {
+    font-family: inherit;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.panel,
+.grid>*,
+.wrap,
+.toolbar,
+.card-body,
+.tree {
+    min-width: 0;
+}
+
+.tree .leaf {
+    flex-wrap: wrap;
+}
+
+.tree .leaf .en,
+.tree .leaf .fl {
+    overflow-wrap: anywhere;
+    min-width: 0;
+}
+
+.tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+}
+
+nav.tabs {
+    flex-wrap: nowrap;
+}
+
+.tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.provenance {
+    min-width: 0;
+}
+
+.provenance span {
+    overflow-wrap: anywhere;
+}
+
+.brand,
+h1,
+h2,
+h3,
+.kpi .v {
+    letter-spacing: 0;
+}
+
+.panel>.tablewrap {
+    margin-block: 16px;
+}
+
+#panel-inputs td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 340px;
+}
+
+#panel-checks td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.chart-bar-row .lab {
+    min-width: 0;
+}
+
+@media (max-width: 700px) {
+    header.topbar {
+        position: static;
+    }
+
+    .topbar-inner {
+        gap: 8px;
+        padding: 10px 0;
+    }
+
+    .provenance {
+        order: 2;
+        flex-basis: 100%;
+        display: flex;
+        gap: 3px;
+        flex-direction: column;
+    }
+
+    .topbar-spacer {
+        flex-grow: 1;
+    }
+
+    .tab {
+        padding: 8px 10px;
+        font-size: .8rem;
+    }
+
+    .grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .grid.kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .kpi {
+        padding: 12px;
+    }
+
+    .kpi .v {
+        font-size: 1.65rem;
+    }
+
+    .toolbar {
+        flex-wrap: wrap;
+    }
+
+    .toolbar .searchbox {
+        flex-basis: 100%;
+        min-width: 0;
+    }
+
+    .input {
+        max-width: 100%;
+    }
+
+    .card-head {
+        flex-wrap: wrap;
+    }
+
+    .drawer {
+        width: 100%;
+    }
+
+    .drawer-head,
+    .drawer-body {
+        padding: 14px;
+    }
+
+    .chart-bar-row {
+        grid-template-columns: minmax(100px, 1fr) minmax(40px, 1fr) 55px;
+    }
+
+    .cov-grid {
+        grid-template-columns: repeat(auto-fill, minmax(24px, 1fr));
+    }
+
+    .cov-cell {
+        aspect-ratio: 1;
+        height: auto;
+    }
+}
+
+@media print {
+    header.topbar {
+        position: static;
+    }
+
+    .tabs,
+    .iconbtn,
+    .searchbox,
+    .dropzone,
+    .foot,
+    .scrim,
+    .drawer {
+        display: none !important;
+    }
+
+    body {
+        background: white;
+        color: black;
+    }
+
+    .card {
+        break-inside: avoid;
+        box-shadow: none;
+    }
+
+    .tablewrap {
+        overflow: visible;
     }
 }

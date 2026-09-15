@@ -11,6 +11,7 @@
 
 use serde::Serialize;
 
+use crate::build_record::{BuildRecord, runs_from_ids};
 use crate::project_manager::{Metadata, ProjectManager};
 use crate::types::{EnvelopeName, FillerName, UniverseId};
 use indexmap::IndexMap;
@@ -18,9 +19,18 @@ use migjorn::Model;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
+use crate::provenance::Evidence;
+
+#[derive(Debug, Serialize)]
+pub struct Check {
+    pub name: &'static str,
+    pub status: &'static str,
+    pub details: Vec<String>,
+}
+
 /// Schema version of the emitted manifest. Bump on breaking changes so the
 /// viewer (and downstream tooling) can adapt.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 // ─── Public data types ────────────────────────────────────────────────────────
 
@@ -28,6 +38,8 @@ pub const SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Serialize)]
 pub struct EnvelopeEntry {
     pub envelope_name: EnvelopeName,
+    pub status: &'static str,
+    pub cell_ids: Vec<i64>,
     /// `None` means the envelope was explicitly set to `null` in the config.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filler_name: Option<FillerName>,
@@ -82,6 +94,10 @@ pub struct EnvelopeStructureStats {
 #[derive(Debug, Serialize)]
 pub struct BuildReport {
     pub schema_version: u32,
+    pub build_status: &'static str,
+    pub checks: Vec<Check>,
+    pub warnings: Vec<String>,
+    pub evidence: Evidence,
     pub config_path: String,
     pub gitronics_version: &'static str,
     pub commit_hash: String,
@@ -114,19 +130,20 @@ struct ModelStats {
     materials: Vec<i64>,
 }
 
-/// Coalesces a set of ids into sorted, inclusive `[start, end]` runs of
-/// consecutive values (a compact, lossless encoding of the exact id positions).
-fn runs_from_ids(mut ids: Vec<i64>) -> Vec<[i64; 2]> {
-    ids.sort_unstable();
-    ids.dedup();
-    let mut runs: Vec<[i64; 2]> = Vec::new();
-    for id in ids {
-        match runs.last_mut() {
-            Some(last) if id == last[1] + 1 => last[1] = id,
-            _ => runs.push([id, id]),
-        }
-    }
-    runs
+pub(crate) struct BuildSnapshot {
+    config_path: String,
+    commit_hash: String,
+    date_time: String,
+    total_cells: usize,
+    total_surfaces: usize,
+    envelope_structure: EnvelopeStructureStats,
+    envelope_entries: Vec<EnvelopeEntry>,
+    filler_entries: Vec<FillerEntry>,
+    materials: Vec<String>,
+    tallies: Vec<String>,
+    transforms: Vec<String>,
+    source: Option<String>,
+    warnings: Vec<String>,
 }
 
 /// Computes cell/surface counts, exact id runs and the distinct material set of
@@ -157,10 +174,9 @@ fn model_stats(model: &Model) -> ModelStats {
     }
 }
 
-impl BuildReport {
-    /// Assembles the manifest for a completed build. `commit_hash` is passed in
-    /// rather than derived here — discovering the git repository is the
-    /// caller's concern (it anchors on the project directory, not this type).
+impl BuildSnapshot {
+    /// Captures component statistics before composition consumes the models.
+    /// Repository discovery remains the caller's responsibility.
     pub fn from_build(
         config_path: &Path,
         commit_hash: String,
@@ -181,11 +197,22 @@ impl BuildReport {
                 .map(|(_, m)| m.surfaces().count())
                 .sum::<usize>();
 
-        let envelope_entries: Vec<EnvelopeEntry> = project_manager
-            .envelopes_in_config()
-            .map(|env_name| {
+        let mut marked_cells: IndexMap<EnvelopeName, Vec<i64>> = IndexMap::new();
+        for cell in envelope_structure.cells() {
+            let text = cell.text();
+            if let Some(captures) = crate::build_model::ENVELOPE_RE.captures(text) {
+                marked_cells
+                    .entry(EnvelopeName::new(&captures[1]))
+                    .or_default()
+                    .extend(cell.id());
+            }
+        }
+        let envelope_entries: Vec<EnvelopeEntry> = marked_cells
+            .into_iter()
+            .map(|(env_name, cell_ids)| {
+                let assignment = project_manager.filler_by_envelope(&env_name);
                 let filler_name: Option<FillerName> = project_manager
-                    .filler_by_envelope(env_name)
+                    .filler_by_envelope(&env_name)
                     .and_then(|opt| opt.clone());
 
                 let universe_id = filler_name
@@ -195,18 +222,24 @@ impl BuildReport {
 
                 let transform = filler_name.as_ref().and_then(|f| {
                     project_manager
-                        .transformation(f, env_name)
+                        .transformation(f, &env_name)
                         .ok()
                         .flatten()
                         .map(str::to_string)
                 });
 
                 let meta = project_manager
-                    .envelope_metadata(env_name)
+                    .envelope_metadata(&env_name)
                     .cloned()
                     .unwrap_or_default();
                 EnvelopeEntry {
                     envelope_name: env_name.clone(),
+                    status: match assignment {
+                        Some(Some(_)) => "filled",
+                        Some(None) => "empty",
+                        None => "unconfigured",
+                    },
+                    cell_ids,
                     filler_name,
                     universe_id,
                     transform,
@@ -253,10 +286,27 @@ impl BuildReport {
             })
             .collect();
 
-        BuildReport {
-            schema_version: SCHEMA_VERSION,
+        Self {
+            warnings: envelope_entries
+                .iter()
+                .filter(|entry| entry.status == "unconfigured")
+                .map(|entry| format!("Envelope {} is not configured", entry.envelope_name))
+                .chain(project_manager.report_warnings.iter().cloned())
+                .chain(
+                    project_manager
+                        .source_name()
+                        .is_none()
+                        .then(|| "No source file selected".to_owned()),
+                )
+                .chain(
+                    envelope_structure
+                        .diagnostics()
+                        .iter()
+                        .chain(fillers.iter().flat_map(|(_, model)| model.diagnostics()))
+                        .map(|diagnostic| diagnostic.message.clone()),
+                )
+                .collect(),
             config_path: config_path.display().to_string(),
-            gitronics_version: env!("CARGO_PKG_VERSION"),
             commit_hash,
             date_time: chrono::Utc::now()
                 .format("%Y-%m-%d %H:%M:%S UTC")
@@ -294,6 +344,55 @@ impl BuildReport {
 // ─── Rendering ────────────────────────────────────────────────────────────────
 
 impl BuildReport {
+    pub(crate) fn from_record(record: BuildRecord) -> Option<Self> {
+        let snapshot = record.snapshot?;
+        Some(Self {
+            schema_version: SCHEMA_VERSION,
+            build_status: record.status.label(),
+            checks: record
+                .checks
+                .into_iter()
+                .map(|check| Check {
+                    name: check.kind.label(),
+                    status: check.status.label(),
+                    details: check.details,
+                })
+                .collect(),
+            warnings: snapshot
+                .warnings
+                .into_iter()
+                .chain(record.warnings)
+                .collect(),
+            evidence: record.evidence,
+            config_path: snapshot.config_path,
+            gitronics_version: env!("CARGO_PKG_VERSION"),
+            commit_hash: snapshot.commit_hash,
+            date_time: snapshot.date_time,
+            total_cells: snapshot.total_cells,
+            total_surfaces: snapshot.total_surfaces,
+            envelope_structure: snapshot.envelope_structure,
+            envelope_entries: snapshot.envelope_entries,
+            filler_entries: snapshot.filler_entries,
+            materials: snapshot.materials,
+            tallies: snapshot.tallies,
+            transforms: snapshot.transforms,
+            source: snapshot.source,
+        })
+    }
+
+    pub fn write(&self, output: &Path) -> Result<(), crate::error::GitronicsError> {
+        let json = self.to_json();
+        for (name, contents) in [
+            ("build_report.json", json.clone()),
+            ("build_report.html", self.generate_html_from_json(&json)),
+        ] {
+            let path = output.join(name);
+            std::fs::write(&path, contents)
+                .map_err(|error| crate::error::GitronicsError::io_path(&path, error))?;
+        }
+        Ok(())
+    }
+
     /// Serialises the manifest to pretty-printed JSON (for `build_report.json`).
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self)
@@ -411,6 +510,10 @@ mod tests {
         BuildReport {
             schema_version: SCHEMA_VERSION,
             config_path: "project/config.yaml".to_string(),
+            build_status: "success",
+            checks: vec![],
+            warnings: vec![],
+            evidence: Evidence::default(),
             gitronics_version: "1.2.3",
             commit_hash: "abc1234".to_string(),
             date_time: "2026-01-01 00:00:00 UTC".to_string(),
@@ -425,6 +528,8 @@ mod tests {
             envelope_entries: vec![
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_a"),
+                    status: "filled",
+                    cell_ids: vec![1],
                     filler_name: Some(FillerName::new("universe_101")),
                     universe_id: Some(UniverseId::new(101)),
                     transform: Some("TR1".to_string()),
@@ -436,6 +541,8 @@ mod tests {
                 },
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_b"),
+                    status: "filled",
+                    cell_ids: vec![2],
                     filler_name: Some(FillerName::new("universe_101")),
                     universe_id: Some(UniverseId::new(101)),
                     transform: None,
@@ -443,6 +550,8 @@ mod tests {
                 },
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_null"),
+                    status: "empty",
+                    cell_ids: vec![3],
                     filler_name: None,
                     universe_id: None,
                     transform: None,

@@ -86,6 +86,30 @@ pub fn normalise_report_json(json: &str) -> String {
             *slot = serde_json::Value::String(format!("<{field}>"));
         }
     }
+    if let Some(evidence) = obj
+        .get_mut("evidence")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for field in ["full_commit", "dirty"] {
+            evidence.insert(
+                field.into(),
+                serde_json::Value::String(format!("<{field}>")),
+            );
+        }
+        if let Some(output) = evidence
+            .get_mut("output")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            output.insert(
+                "sha256".into(),
+                serde_json::Value::String("<output_sha256>".into()),
+            );
+            output.insert(
+                "bytes".into(),
+                serde_json::Value::String("<output_bytes>".into()),
+            );
+        }
+    }
     serde_json::to_string_pretty(&value).expect("re-serialises")
 }
 

@@ -12,7 +12,11 @@ use std::path::Path;
 /// the parser reports any error-severity diagnostic (warnings are tolerated).
 pub fn parse_model_file(path: &Path, file_name: &FileName) -> Result<Model, GitronicsError> {
     let text = fs::read_to_string(path).map_err(|source| GitronicsError::io_path(path, source))?;
-    let model = Model::parse(&text);
+    parse_model_text(&text, file_name)
+}
+
+pub(crate) fn parse_model_text(text: &str, file_name: &FileName) -> Result<Model, GitronicsError> {
+    let model = Model::parse(text);
     if let Some(diag) = model
         .diagnostics()
         .iter()
@@ -20,22 +24,23 @@ pub fn parse_model_file(path: &Path, file_name: &FileName) -> Result<Model, Gitr
     {
         return Err(GitronicsError::FailedToLoadMCNPFile {
             file_name: file_name.clone(),
-            line: diag.line(&text),
+            line: diag.line(text),
             message: diag.message.clone(),
         });
     }
     Ok(model)
 }
 
-/// Reads a Gitronics data-card file and returns its data-card text.
+/// Extracts data-card text from the contents of a Gitronics data-card file.
 ///
 /// Following the data-card file convention, the first line is treated as a
 /// title and dropped unless it is an MCNP comment (in which case it is kept as a
 /// header), and content stops at the first blank line — anything after it is
 /// ignored.
-pub fn read_data_cards_text(path: &Path, file_name: &FileName) -> Result<String, GitronicsError> {
-    let content =
-        fs::read_to_string(path).map_err(|source| GitronicsError::io_path(path, source))?;
+pub(crate) fn data_cards_from_text(
+    content: &str,
+    file_name: &FileName,
+) -> Result<String, GitronicsError> {
     let mut kept: Vec<&str> = Vec::new();
     for (i, line) in content.lines().enumerate() {
         if line.trim().is_empty() {

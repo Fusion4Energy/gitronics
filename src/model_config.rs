@@ -2,12 +2,19 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::env::current_dir;
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::GitronicsError;
 use crate::fs_utils::parent_or_cwd;
+use crate::provenance::SourceFile;
 use crate::types::{EnvelopeName, FileName, FillerName};
+
+pub(crate) struct ConfigurationSource {
+    pub source: SourceFile,
+    pub values: serde_json::Value,
+}
 
 /// Configuration for a neutronics model, typically loaded from a YAML file.
 ///
@@ -55,15 +62,20 @@ impl ModelConfig {
     }
 
     /// Parses a model configuration from a YAML file.
+    #[cfg(test)]
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, GitronicsError> {
         let yaml_content =
             fs::read_to_string(&path).map_err(|source| GitronicsError::io_path(&path, source))?;
+        Self::from_text(&yaml_content, path.as_ref())
+    }
+
+    fn from_text(yaml_content: &str, path: &Path) -> Result<Self, GitronicsError> {
         let mut config: ModelConfig =
-            serde_saphyr::from_str(&yaml_content).map_err(|source| GitronicsError::YamlParse {
-                path: path.as_ref().display().to_string(),
+            serde_saphyr::from_str(yaml_content).map_err(|source| GitronicsError::YamlParse {
+                path: path.display().to_string(),
                 source: Box::new(source),
             })?;
-        config.resolve_project_roots_relative_to(path.as_ref());
+        config.resolve_project_roots_relative_to(path);
         Ok(config)
     }
 
@@ -72,7 +84,14 @@ impl ModelConfig {
     /// If the configuration specifies an `overrides` field, recursively loads
     /// the base configuration and merges them. Detects and prevents circular
     /// override chains.
+    #[cfg(test)]
     pub fn load<P: AsRef<Path>>(config_path: P) -> Result<Self, GitronicsError> {
+        Self::load_with_sources(config_path).map(|(config, _)| config)
+    }
+
+    pub(crate) fn load_with_sources<P: AsRef<Path>>(
+        config_path: P,
+    ) -> Result<(Self, Vec<ConfigurationSource>), GitronicsError> {
         let config_path = if config_path.as_ref().is_absolute() {
             config_path.as_ref().to_path_buf()
         } else {
@@ -80,18 +99,27 @@ impl ModelConfig {
         };
         let config_path = dunce::canonicalize(&config_path)
             .map_err(|source| GitronicsError::io_path(&config_path, source))?;
-        Self::load_inner(&config_path, &mut HashSet::new())
+        let mut sources = Vec::new();
+        let config = Self::load_inner(&config_path, &mut HashSet::new(), &mut sources)?;
+        Ok((config, sources))
     }
 
     fn load_inner(
         config_path: &Path,
         visited: &mut HashSet<PathBuf>,
+        sources: &mut Vec<ConfigurationSource>,
     ) -> Result<Self, GitronicsError> {
         let config_path = config_path.to_path_buf();
         if !visited.insert(config_path.clone()) {
             return Err(GitronicsError::ConfigCycle(config_path));
         }
-        let mut config = Self::from_file(&config_path)?;
+        let (text, source) = SourceFile::read(&config_path)?;
+        let mut config = Self::from_text(&text, &config_path)?;
+        let values = serde_saphyr::from_str(&text).map_err(|source| GitronicsError::YamlParse {
+            path: config_path.display().to_string(),
+            source: Box::new(source),
+        })?;
+        sources.push(ConfigurationSource { source, values });
         // If there is no `overrides` key, apply default project root and return.
         let Some(base_path) = config.overrides() else {
             config.set_default_project_root(parent_or_cwd(&config_path));
@@ -105,7 +133,7 @@ impl ModelConfig {
         let base_path = dunce::canonicalize(&base_path)
             .map_err(|source| GitronicsError::io_path(&base_path, source))?;
         // Resolve the base config recursively so the full chain is applied.
-        let base = Self::load_inner(&base_path, visited)?;
+        let base = Self::load_inner(&base_path, visited, sources)?;
         Ok(config.merge(base))
     }
 

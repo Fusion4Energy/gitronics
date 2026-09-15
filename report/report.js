@@ -12,13 +12,34 @@
     try {
         DATA = JSON.parse(document.getElementById("report-data").textContent);
     } catch (e) {
-        document.body.textContent = `Failed to parse report data: ${  e}`;
+        document.body.textContent = `Failed to parse report data: ${e}`;
         return;
     }
 
     const envelopes = DATA.envelope_entries || [];
     const fillers = DATA.filler_entries || [];
-    const fillerByName = {};
+    const evidence = DATA.evidence || {};
+    const inputs = evidence.inputs || [];
+    const dataCards = evidence.data_cards || [];
+    const dataFilesByPath = new Map();
+    for (const [role, names] of [["materials", DATA.materials || []], ["transforms", DATA.transforms || []],
+    ["tallies", DATA.tallies || []], ["source", DATA.source ? [DATA.source] : []]]) {
+        for (const name of names) {
+            const input = inputs.find((entry) => entry.role === role && entry.name === name);
+            const key = input ? input.path : `${role}:${name}`;
+            if (!dataFilesByPath.has(key)) dataFilesByPath.set(key, { name, path: input ? input.path : null, roles: [], cards: [] });
+            const file = dataFilesByPath.get(key);
+            if (!file.roles.includes(role)) file.roles.push(role);
+        }
+    }
+    for (const card of dataCards) {
+        const file = dataFilesByPath.get(card.input);
+        if (file) file.cards.push(card);
+    }
+    const dataFiles = [...dataFilesByPath.values()];
+    const statusOf = (entry) => entry.status || (entry.filler_name ? "filled" : "empty");
+    const statusLabel = (status) => ({ filled: "Filled", empty: "Explicitly empty", unconfigured: "Not configured" }[status] || status);
+    const fillerByName = Object.create(null);
     fillers.forEach((f) => { fillerByName[f.name] = f; });
     // Synthetic pseudo-filler carrying the envelope structure file's own exact
     // id runs, so the ID map can plot them alongside the fillers' ids.
@@ -29,10 +50,10 @@
     // ── Free-form metadata helpers ─────────────────────────────────────────
     // Metadata keys are project-defined and arbitrary; discover them from data.
     function discoverKeys(items) {
-        const order = [], seen = {};
+        const order = [], seen = Object.create(null);
         items.forEach((it) => {
             const m = it.metadata; if (!m) return;
-            Object.keys(m).forEach((k) => { if (!seen[k]) { seen[k] = 1; order.push(k); } });
+            Object.keys(m).forEach((k) => { if (m[k] != null && metaVal(m[k]) !== "" && !seen[k]) { seen[k] = 1; order.push(k); } });
         });
         return order;
     }
@@ -61,10 +82,13 @@
     }
     // Pick sensible default grouping fields (prefer conventional names if present).
     function defaultFields(keys) {
-        const prefs = ["zone", "region", "system", "group", "sector", "row", "column", "col"];
-        const picked = prefs.filter((p) => { return keys.indexOf(p) >= 0; });
-        if (picked.length) return picked.slice(0, 2);
-        return keys.slice(0, 2);
+        return keys.map((key) => {
+            const values = envelopes.map((entry) => metaGet(entry, key)).filter((value) => value != null && metaVal(value) !== "");
+            const count = new Set(values.map(metaVal)).size;
+            return { key, count, present: values.length };
+        }).filter((field) => field.count > 1 && field.count < field.present && field.count <= 32)
+            .sort((left, right) => right.present - left.present || left.count - right.count || left.key.localeCompare(right.key))
+            .slice(0, 2).map((field) => field.key);
     }
 
     // ── DOM helpers ────────────────────────────────────────────────────────
@@ -94,6 +118,32 @@
         return n;
     }
     function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+    function actionable(node, handler) {
+        node.setAttribute("tabindex", "0");
+        node.setAttribute("role", "button");
+        node.addEventListener("click", handler);
+        node.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); handler(); }
+        });
+        return node;
+    }
+    function tableOf(headers, rows) {
+        return el("div", { class: "tablewrap" }, el("table", { class: "data" }, [
+            el("thead", {}, el("tr", {}, headers.map((heading) => el("th", { scope: "col", text: heading })))),
+            el("tbody", {}, rows.map((row) => el("tr", {}, row.map((value) => el("td", {}, value)))))
+        ]));
+    }
+    function detailsBlock(title, content) {
+        const details = el("details", { class: "detail-block" }, el("summary", { text: title }));
+        if (typeof content === "function") {
+            let rendered = false;
+            details.addEventListener("toggle", () => {
+                if (details.open && !rendered) { rendered = true; details.appendChild(content()); }
+            });
+        } else append(details, content);
+        return details;
+    }
+    function inputFor(name, role = "filler") { return inputs.find((input) => input.name === name && input.role === role); }
     function fmt(x) { return (x == null ? "—" : Number(x).toLocaleString("en-US")); }
     const $ = (s, r) => { return (r || document).querySelector(s); };
 
@@ -107,7 +157,7 @@
     function uColor(id) {
         if (id == null) return "var(--null)";
         const dark = document.documentElement.getAttribute("data-theme") === "dark";
-        return `hsl(${  uHue(id)  } ${  dark ? 55 : 62  }% ${  dark ? 55 : 52  }%)`;
+        return `hsl(${uHue(id)} ${dark ? 55 : 62}% ${dark ? 55 : 52}%)`;
     }
 
     // ── Icons (inline SVG paths) ───────────────────────────────────────────
@@ -136,17 +186,18 @@
         tip.innerHTML = html;
         tip.classList.add("show");
         const w = tip.offsetWidth, h = tip.offsetHeight;
-        tip.style.left = `${Math.min(x + 14, window.innerWidth - w - 8)  }px`;
-        tip.style.top = `${Math.max(8, y - h - 12)  }px`;
+        tip.style.left = `${Math.min(x + 14, window.innerWidth - w - 8)}px`;
+        tip.style.top = `${Math.max(8, y - h - 12)}px`;
     }
     function hideTip() { tip.classList.remove("show"); }
 
     // ── Derived stats ──────────────────────────────────────────────────────
     const nFilled = envelopes.filter((e) => { return e.filler_name; }).length;
-    const nNull = envelopes.length - nFilled;
+    const nNull = envelopes.filter((entry) => statusOf(entry) === "empty").length;
+    const nUnconfigured = envelopes.filter((entry) => statusOf(entry) === "unconfigured").length;
+    const completeness = envelopes.length ? Math.round((envelopes.length - nUnconfigured) / envelopes.length * 100) : 100;
     const coverage = envelopes.length ? Math.round((nFilled / envelopes.length) * 100) : 0;
-    const nData = (DATA.materials || []).length + (DATA.tallies || []).length +
-        (DATA.transforms || []).length + (DATA.source ? 1 : 0);
+    const nData = dataFiles.length;
 
     // ── App shell ──────────────────────────────────────────────────────────
     const app = el("div");
@@ -155,22 +206,25 @@
     // ── Tabs (defined before the header, which mounts them) ────────────────
     const TABS = [
         { id: "overview", label: "Overview", icon: "layers" },
+        { id: "checks", label: "Checks", icon: "layers", pill: (DATA.warnings || []).length },
         { id: "explorer", label: "Explorer", icon: "tree", pill: envelopes.length },
         { id: "coverage", label: "Coverage Map", icon: "grid" },
         { id: "idmap", label: "ID Map", icon: "map" },
         { id: "fillers", label: "Fillers", icon: "box", pill: fillers.length },
         { id: "data", label: "Data Cards", icon: "layers", pill: nData },
+        { id: "inputs", label: "Inputs", icon: "layers", pill: inputs.length },
         { id: "diff", label: "Diff", icon: "diff" }
     ];
     const tabBtns = {};
     function buildTabs() {
-        const nav = el("nav", { class: "tabs" });
+        const nav = el("nav", { class: "tabs", "aria-label": "Report views" });
         TABS.forEach((t) => {
             const b = el("button", { class: "tab", onclick: () => { go(t.id); } }, [
                 icon(t.icon), document.createTextNode(t.label)
             ]);
             if (t.pill != null) b.appendChild(el("span", { class: "pill", text: String(t.pill) }));
             tabBtns[t.id] = b;
+            b.setAttribute("aria-controls", `panel-${t.id}`);
             nav.appendChild(b);
         });
         return nav;
@@ -190,7 +244,7 @@
             el("div", { class: "brand" }, [
                 el("span", { class: "logo", text: "◆" }),
                 el("span", { text: "gitronics" }),
-                el("span", { class: "ver", text: `v${  DATA.gitronics_version}` })
+                el("span", { class: "ver", text: `v${DATA.gitronics_version}` })
             ]),
             el("span", { class: "badge-report", text: "Build Report" }),
             el("div", { class: "topbar-spacer" }),
@@ -213,7 +267,7 @@
     app.appendChild(el("footer", { class: "foot" }, [
         document.createTextNode("Generated by "),
         el("a", { href: "https://fusion4energy.github.io/gitronics/latest", text: "gitronics" }),
-        document.createTextNode(` · schema v${  DATA.schema_version || 1}`)
+        document.createTextNode(` · schema v${DATA.schema_version || 1}`)
     ]));
 
     // ── Tabs (mounting handled by buildTabs, defined above) ────────────────
@@ -221,10 +275,13 @@
     const panelEls = {};
     function go(id) {
         if (!tabBtns[id]) id = "overview";
-        for (const k in tabBtns) tabBtns[k].classList.toggle("active", k === id);
+        for (const k in tabBtns) {
+            tabBtns[k].classList.toggle("active", k === id);
+            tabBtns[k].setAttribute("aria-current", k === id ? "page" : "false");
+        }
         for (const p in panelEls) panelEls[p].classList.toggle("active", p === id);
         if (!panelEls[id]) {
-            const pane = el("section", { class: "panel", id: `panel-${  id}` });
+            const pane = el("section", { class: "panel", id: `panel-${id}` });
             panels.appendChild(pane);
             panelEls[id] = pane;
         }
@@ -245,8 +302,8 @@
     function setHash(patch) {
         const o = getHash();
         for (const k in patch) { if (patch[k] == null) delete o[k]; else o[k] = patch[k]; }
-        const s = Object.keys(o).map((k) => { return `${k  }=${  encodeURIComponent(o[k])}`; }).join("&");
-        history.replaceState(null, "", `#${  s}`);
+        const s = Object.keys(o).map((k) => { return `${k}=${encodeURIComponent(o[k])}`; }).join("&");
+        history.replaceState(null, "", `#${s}`);
     }
 
     // ── Theme ────────────────────────────────────────────────────────────────
@@ -266,13 +323,14 @@
         const blob = new Blob([JSON.stringify(DATA, null, 2)], { type: "application/json" });
         const a = el("a", { href: URL.createObjectURL(blob), download: "build_report.json" });
         document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(a.href);
     }
 
     // ── Search box widget ────────────────────────────────────────────────────
     function searchBox(placeholder, oninput) {
         const box = el("div", { class: "searchbox" });
         box.appendChild(icon("search"));
-        const inp = el("input", { class: "input", type: "text", placeholder: placeholder, oninput: (e) => { oninput(e.currentTarget.value.toLowerCase().trim()); } });
+        const inp = el("input", { class: "input", type: "search", "aria-label": placeholder, placeholder: placeholder, oninput: (e) => { oninput(e.currentTarget.value.toLowerCase().trim()); } });
         box.appendChild(inp);
         return box;
     }
@@ -287,14 +345,6 @@
         if (spark) k.appendChild(spark);
         return k;
     }
-    function donutMini(pct) {
-        const s = svgEl("svg", { class: "spark", width: 34, height: 34, viewBox: "0 0 36 36" });
-        const bg = svgEl("circle", { cx: 18, cy: 18, r: 15, fill: "none", stroke: "var(--surface-3)", "stroke-width": 5 });
-        const c = 2 * Math.PI * 15;
-        const fg = svgEl("circle", { cx: 18, cy: 18, r: 15, fill: "none", stroke: "var(--ok)", "stroke-width": 5, "stroke-linecap": "round", "stroke-dasharray": `${c * pct / 100  } ${  c}`, transform: "rotate(-90 18 18)" });
-        s.appendChild(bg); s.appendChild(fg);
-        return s;
-    }
 
     // ══════════════════════════════════════════════════════════════════════
     //  RENDERERS
@@ -307,24 +357,32 @@
         const wrap = el("div", { class: "section-gap" });
         root.appendChild(wrap);
 
+        wrap.appendChild(el("div", { class: "report-heading" }, [
+            el("h1", { text: (DATA.config_path || "Build").split(/[\\/]/).pop() }),
+            el("span", { class: `chip ${DATA.build_status === "failed" ? "danger" : "accent"}`, text: DATA.build_status === "success" ? "Assembly completed" : DATA.build_status === "failed" ? "Build failed" : "Build status not recorded" })
+        ]));
+        const attention = el("div", { class: "attention" }, [
+            el("button", { class: "btn", text: `${(DATA.warnings || []).length} warnings`, onclick: () => go("checks") }),
+            el("button", { class: "btn", text: `${nUnconfigured} unconfigured envelopes`, onclick: () => { go("explorer"); const select = $("#panel-explorer .status-filter"); select.value = "unconfigured"; select.dispatchEvent(new window.Event("change")); } }),
+            el("span", { class: "muted", text: "Geometry and transport physics: not validated by this build" })
+        ]);
+        wrap.appendChild(attention);
+
         // KPIs
         const kpis = el("div", { class: "grid kpis" }, [
             kpi(DATA.total_cells, "Cells"),
             kpi(DATA.total_surfaces, "Surfaces"),
-            kpi(envelopes.length, "Envelopes", `${nFilled  } filled · ${  nNull  } null`),
+            kpi(envelopes.length, "Envelopes", `${nFilled} filled · ${nNull} explicitly empty`),
             kpi(fillers.length, "Filler Models"),
-            kpi(`${coverage  }%`, "Fill Coverage", null, donutMini(coverage)),
-            kpi(nData, "Data Files")
+            kpi(completeness, "Configuration completeness", `${nUnconfigured} not configured`),
+            kpi(nData, "Data files")
         ]);
         // coverage % value shows literal string; fix formatting
-        kpis.children[4].querySelector(".v").textContent = `${coverage  }%`;
+        kpis.children[4].querySelector(".v").textContent = `${completeness}%`;
         wrap.appendChild(kpis);
 
         const cols = el("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(320px,1fr))" });
         wrap.appendChild(cols);
-
-        // Coverage donut card
-        cols.appendChild(card("Fill coverage", donutCard()));
 
         // Top fillers by cells
         const topCells = fillers.slice().sort((a, b) => { return b.cell_count - a.cell_count; }).slice(0, 10);
@@ -342,14 +400,14 @@
         // Materials usage
         const matCount = {};
         fillers.forEach((f) => { (f.materials || []).forEach((m) => { matCount[m] = (matCount[m] || 0) + 1; }); });
-        const mats = Object.keys(matCount).map((m) => { return { label: `mat ${  m}`, value: matCount[m] }; })
+        const mats = Object.keys(matCount).map((m) => { return { label: `mat ${m}`, value: matCount[m] }; })
             .sort((a, b) => { return b.value - a.value; }).slice(0, 12);
         if (mats.length) cols.appendChild(card("Material usage (fillers per material)", barChart(mats)));
 
         // Breakdown by a chosen metadata field (fully generic).
-        if (envMetaKeys.length) {
-            const field = defaultFields(envMetaKeys)[0] || envMetaKeys[0];
-            const breakdownCard = card(`Envelopes by ${  field}`, el("div"));
+        if (defaultFields(envMetaKeys).length) {
+            const field = defaultFields(envMetaKeys)[0];
+            const breakdownCard = card(`Envelopes by ${field}`, el("div"));
             const head = breakdownCard.querySelector(".card-head");
             const sel = el("select", { class: "input", style: "width:auto;margin-left:auto" });
             envMetaKeys.forEach((k) => { sel.appendChild(el("option", { value: k, text: k })); });
@@ -359,7 +417,7 @@
             function paintBreakdown() {
                 clear(bd);
                 bd.appendChild(barChart(rollupBy(sel.value).map((g) => {
-                    return { label: g.key, value: g.total, sub: `${g.filled  }/${  g.total  } filled` };
+                    return { label: g.key, value: g.total, sub: `${g.filled}/${g.total} filled` };
                 })));
             }
             sel.addEventListener("change", paintBreakdown);
@@ -375,44 +433,10 @@
         ]);
     }
 
-    function donutCard() {
-        const wrap = el("div", { class: "donut-wrap" });
-        const size = 150, r = 60, cx = 75, cy = 75, sw = 22;
-        const s = svgEl("svg", { width: size, height: size, viewBox: "0 0 150 150" });
-        const segs = [
-            { v: nFilled, c: "var(--ok)", label: "Filled" },
-            { v: nNull, c: "var(--null)", label: "Null" }
-        ].filter((x) => { return x.v > 0; });
-        const total = nFilled + nNull || 1, circ = 2 * Math.PI * r;
-        let off = 0;
-        segs.forEach((seg) => {
-            const frac = seg.v / total;
-            const c = svgEl("circle", {
-                cx: cx, cy: cy, r: r, fill: "none", stroke: seg.c, "stroke-width": sw,
-                "stroke-dasharray": `${circ * frac  } ${  circ}`,
-                "stroke-dashoffset": -off * circ,
-                transform: `rotate(-90 ${  cx  } ${  cy  })`
-            });
-            s.appendChild(c);
-            off += frac;
-        });
-        s.appendChild(svgEl("circle", { cx: cx, cy: cy, r: r - sw / 2 - 2, fill: "var(--surface)" }));
-        const t1 = svgEl("text", { x: cx, y: cy - 2, "text-anchor": "middle", "font-size": 26, "font-weight": 800, fill: "var(--text)" });
-        t1.textContent = `${coverage  }%`;
-        const t2 = svgEl("text", { x: cx, y: cy + 18, "text-anchor": "middle", "font-size": 11, fill: "var(--text-3)" });
-        t2.textContent = "filled";
-        s.appendChild(t1); s.appendChild(t2);
-        wrap.appendChild(s);
-        const leg = el("div", {});
-        leg.appendChild(legRow("var(--ok)", "Filled", nFilled));
-        leg.appendChild(legRow("var(--null)", "Null", nNull));
-        wrap.appendChild(leg);
-        return wrap;
-    }
     function legRow(color, label, val) {
         return el("div", { class: "legend", style: "margin:4px 0" }, el("div", { class: "item" }, [
-            el("span", { class: "dot-swatch", style: `background:${  color}` }),
-            el("span", { text: `${label  } · ${  fmt(val)}` })
+            el("span", { class: "dot-swatch", style: `background:${color}` }),
+            el("span", { text: `${label} · ${fmt(val)}` })
         ]));
     }
 
@@ -421,13 +445,13 @@
         const box = el("div", {});
         if (!rows.length) { box.appendChild(el("div", { class: "empty", text: "No data" })); return box; }
         rows.forEach((r) => {
-            const fill = el("div", { class: "fill", style: `width:${  r.value / max * 100  }%${  r.id != null ? `;background:${  uColor(r.id)}` : ""}` });
+            const fill = el("div", { class: "fill", style: `width:${r.value / max * 100}%${r.id != null ? `;background:${uColor(r.id)}` : ""}` });
             const row = el("div", { class: "chart-bar-row" }, [
                 el("div", { class: "lab", title: r.label, text: r.label }),
                 el("div", { class: "track" }, fill),
                 el("div", { class: "val", text: fmt(r.value) + (r.sub ? "" : "") })
             ]);
-            if (r.onclick) { row.style.cursor = "pointer"; row.addEventListener("click", r.onclick); }
+            if (r.onclick) { row.style.cursor = "pointer"; actionable(row, r.onclick); }
             if (r.sub) row.querySelector(".lab").title = r.sub;
             box.appendChild(row);
         });
@@ -438,12 +462,12 @@
     // "__filler__"/"__universe__"). Returns [{key, total, filled}] sorted by size.
     function groupKeyOf(e, field) {
         if (field === "__filler__") return e.filler_name || "(null)";
-        if (field === "__universe__") return e.universe_id != null ? `u${  e.universe_id}` : "(null)";
+        if (field === "__universe__") return e.universe_id != null ? `u${e.universe_id}` : "(null)";
         const v = metaGet(e, field);
         return v == null || v === "" ? "—" : metaVal(v);
     }
     function rollupBy(field) {
-        const m = {};
+        const m = Object.create(null);
         envelopes.forEach((e) => {
             const k = groupKeyOf(e, field);
             if (!m[k]) m[k] = { key: k, total: 0, filled: 0 };
@@ -461,7 +485,7 @@
         return opts;
     }
     function groupSelect(value, onchange) {
-        const sel = el("select", { class: "input", style: "width:auto" });
+        const sel = el("select", { class: "input", style: "width:auto", "aria-label": "Group by metadata" });
         groupFieldOptions().forEach((o) => { sel.appendChild(el("option", { value: o.v, text: o.t })); });
         sel.value = value;
         sel.addEventListener("change", (e) => { onchange(e.currentTarget.value); });
@@ -474,15 +498,17 @@
         const treeHost = el("div", { class: "tree" });
         const note = el("div", { class: "count-note" });
         const defaults = defaultFields(envMetaKeys);
-        let g1 = defaults[0] || (envMetaKeys.length ? envMetaKeys[0] : "__none__");
+        let g1 = getHash().group || defaults[0] || "__none__";
         let g2 = defaults[1] || "__none__";
         let curQ = getHash().q || "";
 
-        const sel1 = groupSelect(g1, (v) => { g1 = v; rebuild(curQ); });
+        const sel1 = groupSelect(g1, (v) => { g1 = v; setHash({ group: v }); rebuild(curQ); });
         const sel2 = groupSelect(g2, (v) => { g2 = v; rebuild(curQ); });
+        const statusFilter = el("select", { class: "input status-filter", "aria-label": "Assignment status", onchange: () => rebuild(curQ) },
+            [el("option", { value: "all", text: "All statuses" }), ...["filled", "empty", "unconfigured"].map((status) => el("option", { value: status, text: statusLabel(status) }))]);
         const body = el("div", { class: "card-body section-gap" }, [
             el("div", { class: "toolbar" }, [
-                searchBox("Filter by envelope, filler, metadata, universe…", (q) => { curQ = q; rebuild(q); }),
+                searchBox("Filter by envelope, filler, metadata, universe…", (q) => { curQ = q; setHash({ q: q || null }); rebuild(q); }), statusFilter,
                 el("span", { class: "muted", style: "font-size:.8rem", text: "Group by" }), sel1,
                 el("span", { class: "muted", style: "font-size:.8rem", text: "then" }), sel2,
                 note
@@ -490,15 +516,16 @@
             treeHost
         ]);
         root.appendChild(el("div", { class: "card" }, [
-            el("div", { class: "card-head" }, [el("h2", { text: "Model hierarchy" }),
+            el("div", { class: "card-head" }, [el("h2", { text: "Envelope assignments" }),
             el("span", { class: "spring" }),
-            el("span", { class: "chip ok", text: `${nFilled  } filled` }),
-            el("span", { class: "chip null", text: `${nNull  } null` })]),
+            el("span", { class: "chip ok", text: `${nFilled} filled` }),
+            el("span", { class: "chip null", text: `${nNull} explicitly empty` }),
+            el("span", { class: "chip", text: `${nUnconfigured} not configured` })]),
             body
         ]));
 
         function buildGroups(list, field) {
-            const groups = {}, order = [];
+            const groups = Object.create(null), order = [];
             list.forEach((e) => {
                 const k = groupKeyOf(e, field);
                 if (!groups[k]) { groups[k] = []; order.push(k); }
@@ -521,14 +548,14 @@
         function rebuild(q) {
             clear(treeHost);
             q = (q || "").toLowerCase();
-            const shown = envelopes.filter((e) => { return !q || matchEnv(e).indexOf(q) >= 0; });
-            note.textContent = `${shown.length  } / ${  envelopes.length  } envelopes`;
+            const shown = envelopes.filter((e) => (statusFilter.value === "all" || statusOf(e) === statusFilter.value) && (!q || matchEnv(e).indexOf(q) >= 0));
+            note.textContent = `${shown.length} / ${envelopes.length} envelopes`;
             if (!shown.length) { treeHost.appendChild(el("div", { class: "empty", text: "No matches" })); return; }
 
             if (g1 === "__none__") { shown.forEach((e) => { treeHost.appendChild(leafRow(e)); }); return; }
 
             const lvl1 = buildGroups(shown, g1);
-            const autoOpen = lvl1.order.length <= 3 || !!q;
+            const autoOpen = shown.length <= 50 || !!q;
             lvl1.order.forEach((k1) => {
                 const list1 = lvl1.groups[k1];
                 const d1 = groupDetails(k1, list1.length, autoOpen);
@@ -548,10 +575,11 @@
             });
         }
         rebuild(curQ);
+        $("input", root).value = curQ;
     };
 
     function matchEnv(e) {
-        const parts = [e.envelope_name, e.filler_name, e.universe_id, e.transform];
+        const parts = [e.envelope_name, e.filler_name, e.universe_id, e.transform, ...(e.cell_ids || [])];
         if (e.metadata) Object.keys(e.metadata).forEach((k) => { parts.push(metaVal(e.metadata[k])); });
         return parts.filter((x) => { return x != null && x !== ""; }).join(" ").toLowerCase();
     }
@@ -559,19 +587,19 @@
     function leafRow(e) {
         const filled = !!e.filler_name;
         const leaf = el("div", { class: "leaf" });
-        leaf.appendChild(el("span", { class: "dot-swatch", style: `background:${  filled ? uColor(e.universe_id) : "var(--null)"}` }));
+        leaf.appendChild(el("span", { class: "dot-swatch", style: `background:${filled ? uColor(e.universe_id) : "var(--null)"}` }));
         leaf.appendChild(el("span", { class: "en", text: e.envelope_name }));
         if (filled) {
-            leaf.appendChild(el("span", { class: "fl", text: `→ ${  e.filler_name}` }));
-            leaf.appendChild(el("span", { class: "chip accent", text: `u${  e.universe_id}` }));
+            leaf.appendChild(el("span", { class: "fl", text: `→ ${e.filler_name}` }));
+            leaf.appendChild(el("span", { class: "chip accent", text: `u${e.universe_id}` }));
             if (e.transform) leaf.appendChild(el("span", { class: "chip", text: e.transform }));
         } else {
-            leaf.appendChild(el("span", { class: "chip null", text: "null" }));
+            leaf.appendChild(el("span", { class: "chip null", text: statusLabel(statusOf(e)) }));
         }
         leaf.appendChild(el("span", { class: "spring" }));
         const d = descOf(e);
         if (d) leaf.appendChild(el("span", { class: "desc", text: d }));
-        if (filled) leaf.addEventListener("click", () => { openFiller(e.filler_name); });
+        actionable(leaf, () => openEnvelope(e.envelope_name));
         return leaf;
     }
 
@@ -579,26 +607,33 @@
     RENDER.coverage = (root) => {
         clear(root);
         const host = el("div", {});
+        let query = "";
         let g = defaultFields(envMetaKeys)[0] || "__none__";
         const sel = groupSelect(g, (v) => { g = v; rebuild(); });
+        const statusSelect = el("select", { class: "input", "aria-label": "Map assignment status", onchange: rebuild },
+            [el("option", { value: "all", text: "All statuses" }), ...["filled", "empty", "unconfigured"].map((status) => el("option", { value: status, text: statusLabel(status) }))]);
+        const colorSelect = el("select", { class: "input", "aria-label": "Color by", onchange: rebuild }, [
+            el("option", { value: "status", text: "Color by status" }), el("option", { value: "universe", text: "Color by universe" })]);
         const body = el("div", { class: "card-body section-gap" }, [
             el("div", { class: "toolbar" }, [
                 el("span", { class: "muted", style: "font-size:.8rem", text: "Group by" }), sel,
-                el("span", { class: "item muted", style: "font-size:.8rem", text: "Each square is an envelope, colored by the universe filling it. Hover for details, click to inspect the filler." })
+                statusSelect, colorSelect, searchBox("Filter map envelopes", (value) => { query = value; rebuild(); })
             ]),
+            el("div", { class: "legend" }, [legRow("var(--ok)", "Filled", nFilled), legRow("var(--null)", "Explicitly empty", nNull), legRow("var(--warn)", "Not configured", nUnconfigured)]),
             host
         ]);
         root.appendChild(el("div", { class: "card" }, [
             el("div", { class: "card-head" }, [el("h2", { text: "Coverage map" }),
             el("span", { class: "spring" }),
-            el("span", { class: "chip accent", text: `${coverage  }% filled` })]),
+            el("span", { class: "chip accent", text: `${coverage}% filled` })]),
             body
         ]));
 
         function rebuild() {
             clear(host);
-            const groups = {}, order = [];
+            const groups = Object.create(null), order = [];
             envelopes.forEach((e) => {
+                if ((statusSelect.value !== "all" && statusOf(e) !== statusSelect.value) || (query && !matchEnv(e).includes(query))) return;
                 const k = g === "__none__" ? "All envelopes" : groupKeyOf(e, g);
                 if (!groups[k]) { groups[k] = []; order.push(k); }
                 groups[k].push(e);
@@ -612,38 +647,42 @@
                 const zwrap = el("div", { class: "cov-zone" });
                 zwrap.appendChild(el("h4", {}, [
                     el("span", { text: k }),
-                    el("span", { class: "chip", text: `${filled  }/${  list.length}` })
+                    el("span", { class: "chip", text: `${filled}/${list.length}` })
                 ]));
                 const grid = el("div", { class: "cov-grid" });
                 list.forEach((e) => {
                     const filledCell = !!e.filler_name;
-                    const cell = el("div", {
+                    const stateColor = { filled: "var(--ok)", empty: "var(--null)", unconfigured: "var(--warn)" }[statusOf(e)];
+                    const cell = el("button", {
                         class: "cov-cell",
-                        style: `background:${  filledCell ? uColor(e.universe_id) : "var(--null-weak)"}`
+                        "aria-label": `${e.envelope_name}: ${statusLabel(statusOf(e))}`,
+                        title: `${e.envelope_name}: ${statusLabel(statusOf(e))}`,
+                        style: `background:${colorSelect.value === "universe" && filledCell ? uColor(e.universe_id) : stateColor}`,
+                        onclick: () => { hideTip(); openEnvelope(e.envelope_name); }
                     });
                     cell.addEventListener("mousemove", (ev) => { showTip(envTip(e), ev.clientX, ev.clientY); });
                     cell.addEventListener("mouseleave", hideTip);
-                    if (filledCell) cell.addEventListener("click", () => { hideTip(); openFiller(e.filler_name); });
                     grid.appendChild(cell);
                 });
                 zwrap.appendChild(grid);
                 host.appendChild(zwrap);
             });
+            if (!order.length) host.appendChild(el("p", { class: "empty", text: "No matching envelopes." }));
         }
         rebuild();
     };
 
     // Tooltip HTML for an envelope: name, description, up to 4 metadata fields, filler.
     function envTip(e) {
-        let s = `<b>${  esc(e.envelope_name)  }</b>`;
-        const d = descOf(e); if (d) s += `<br>${  esc(d)}`;
+        let s = `<b>${esc(e.envelope_name)}</b>`;
+        const d = descOf(e); if (d) s += `<br>${esc(d)}`;
         if (e.metadata) {
             Object.keys(e.metadata).slice(0, 5).forEach((k) => {
                 if (["description", "desc", "title"].indexOf(k) >= 0) return;
-                s += `<br><span style='opacity:.7'>${  esc(k)  }:</span> ${  esc(metaVal(e.metadata[k]))}`;
+                s += `<br><span style='opacity:.7'>${esc(k)}:</span> ${esc(metaVal(e.metadata[k]))}`;
             });
         }
-        s += `<br>${  e.filler_name ? `→ ${  esc(e.filler_name)  } (u${  e.universe_id  })` : "null"}`;
+        s += `<br>${e.filler_name ? `→ ${esc(e.filler_name)} (u${e.universe_id})` : statusLabel(statusOf(e))}`;
         return s;
     }
 
@@ -692,7 +731,23 @@
         let hoverId = null, dragging = false, moved = false, lastX = 0;
 
         const canvas = el("canvas", { class: "idmap-canvas" });
+        canvas.setAttribute("aria-label", `${title} occupancy map`);
         const readout = el("span", { class: "count-note mono" });
+        const lookup = el("input", { class: "input", type: "number", min: gmin, max: gmax, step: 1, "aria-label": `Find ${title.toLowerCase()}`, placeholder: "Card ID" });
+        const lookupResult = el("div", { class: "id-lookup-result", "aria-live": "polite" });
+        const lookupForm = el("form", {
+            class: "toolbar", onsubmit: (event) => {
+                event.preventDefault(); clear(lookupResult);
+                const id = Number(lookup.value);
+                if (!lookup.value || !Number.isSafeInteger(id) || id < gmin || id > gmax) {
+                    lookupResult.textContent = `Enter an integer from ${gmin} to ${gmax}.`; return;
+                }
+                vs = id - 8; ve = id + 9; clampView(); schedule();
+                const segment = segAt(id);
+                lookupResult.appendChild(el("span", { text: segment ? `${id}: ${segment.f.name}` : `${id}: unused` }));
+                if (segment && !segment.isEnv) lookupResult.appendChild(el("button", { class: "btn", type: "button", text: "Inspect owner", onclick: () => openFiller(segment.f.name) }));
+            }
+        }, [lookup, el("button", { class: "iconbtn", type: "submit", title: "Find card ID", "aria-label": "Find card ID" }, icon("search"))]);
         const laneTitle = `${title} · ${fillers.length} fillers${envelopeStructure ? " + envelope structure" : ""}`;
         const controls = el("div", { class: "idmap-controls" }, [
             el("div", { class: "lane-title", text: laneTitle }),
@@ -703,6 +758,8 @@
             readout
         ]);
         wrap.appendChild(controls);
+        wrap.appendChild(lookupForm);
+        wrap.appendChild(lookupResult);
         wrap.appendChild(canvas);
 
         function clampView() {
@@ -766,7 +823,7 @@
                 for (let k = startId; k <= endId; k++) { const xx = X(k); ctx.moveTo(xx, laneTop); ctx.lineTo(xx, laneTop + laneH); }
                 ctx.stroke(); ctx.globalAlpha = 1;
                 if (ppid >= 34) {
-                    ctx.fillStyle = cSurface; ctx.font = `10px ${  cs.getPropertyValue("--font-mono") || "monospace"}`;
+                    ctx.fillStyle = cSurface; ctx.font = `10px ${cs.getPropertyValue("--font-mono") || "monospace"}`;
                     ctx.textAlign = "center"; ctx.textBaseline = "middle";
                     for (let k2 = startId; k2 <= endId; k2++) {
                         if (segAt(k2)) ctx.fillText(String(k2), X(k2) + ppid / 2, laneTop + laneH / 2);
@@ -776,7 +833,7 @@
 
             // Bottom axis with id value labels.
             ctx.fillStyle = cText3; ctx.strokeStyle = cBorder; ctx.lineWidth = 1;
-            ctx.font = `11px ${  cs.getPropertyValue("--font-mono") || "monospace"}`;
+            ctx.font = `11px ${cs.getPropertyValue("--font-mono") || "monospace"}`;
             ctx.textBaseline = "top";
             for (let t = 0; t <= 5; t++) {
                 const v = Math.round(vs + (t / 5) * (ve - vs));
@@ -794,8 +851,8 @@
             }
 
             const util = Math.round((used / domSpan) * 100);
-            readout.textContent = `ids ${  fmt(Math.floor(vs))  }–${  fmt(Math.ceil(ve - 1)) 
-                } · ${  fmt(used)  } used across ${  fmt(domSpan)  } (${  util  }% dense)`;
+            readout.textContent = `ids ${fmt(Math.floor(vs))}–${fmt(Math.ceil(ve - 1))
+                } · ${fmt(used)} used across ${fmt(domSpan)} (${util}% dense)`;
         }
 
         canvas.addEventListener("wheel", (e) => {
@@ -825,8 +882,8 @@
             hoverId = id;
             const seg = segAt(id);
             if (seg) {
-                showTip(`<b>${  esc(seg.f.name)  }</b><br>id ${  fmt(id)  }${  seg.isEnv ? "" : ` · u${  seg.f.universe_id}`
-                    }<br>run ${  fmt(seg.s)  }–${  fmt(seg.e)  } (${  fmt(seg.e - seg.s + 1)  } ids)`, e.clientX, e.clientY);
+                showTip(`<b>${esc(seg.f.name)}</b><br>id ${fmt(id)}${seg.isEnv ? "" : ` · u${seg.f.universe_id}`
+                    }<br>run ${fmt(seg.s)}–${fmt(seg.e)} (${fmt(seg.e - seg.s + 1)} ids)`, e.clientX, e.clientY);
                 canvas.style.cursor = seg.isEnv ? "default" : "pointer";
             } else { hideTip(); canvas.style.cursor = "grab"; }
             schedule();
@@ -861,6 +918,7 @@
             { k: "surface_count", t: "Surfaces", num: true }
         ];
         fillerMetaKeys.forEach((k) => { cols.push({ k: k, t: k, num: false, meta: true }); });
+        const visibleMetadata = new Set(fillerMetaKeys.slice(0, 2));
 
         function cellVal(f, c) { return c.meta ? metaGet(f, c.k) : f[c.k]; }
 
@@ -869,16 +927,17 @@
             const th = el("th", { class: c.num ? "num" : "" }, [
                 document.createTextNode(c.t), el("span", { class: "arrow", text: " " })
             ]);
-            th.addEventListener("click", () => {
+            actionable(th, () => {
                 if (fillerSort.key === c.k) fillerSort.dir *= -1; else { fillerSort.key = c.k; fillerSort.dir = 1; }
                 paint(curQ);
             });
+            th.hidden = !!c.meta && !visibleMetadata.has(c.k);
             htr.appendChild(th);
         });
         thead.appendChild(htr);
         const table = el("table", { class: "data" }, [thead, tbody]);
 
-        const colByKey = {}; cols.forEach((c) => { colByKey[c.k] = c; });
+        const colByKey = Object.create(null); cols.forEach((c) => { colByKey[c.k] = c; });
 
         let curQ = "";
         function paint(q) {
@@ -899,11 +958,11 @@
                 if (bv == null || bv === "") bv = "";
                 return String(metaVal(av)).localeCompare(String(metaVal(bv)), undefined, { numeric: true }) * dir;
             });
-            note.textContent = `${rows.length  } / ${  fillers.length  } fillers`;
+            note.textContent = `${rows.length} / ${fillers.length} fillers`;
             rows.forEach((f) => {
                 const tr = el("tr", { "data-name": f.name });
                 tr.appendChild(el("td", { class: "name" }, [
-                    el("span", { class: "dot-swatch", style: `background:${  uColor(f.universe_id)  };margin-right:7px` }),
+                    el("span", { class: "dot-swatch", style: `background:${uColor(f.universe_id)};margin-right:7px` }),
                     document.createTextNode(f.name)
                 ]));
                 tr.appendChild(el("td", { class: "num", text: fmt(f.universe_id) }));
@@ -912,16 +971,29 @@
                 tr.appendChild(el("td", { class: "num", text: fmt(f.surface_count) }));
                 fillerMetaKeys.forEach((k) => {
                     const v = metaGet(f, k);
-                    tr.appendChild(el("td", { class: "muted", text: v == null ? "—" : metaVal(v) }));
+                    const cell = el("td", { class: "muted", text: v == null ? "—" : metaVal(v) });
+                    cell.hidden = !visibleMetadata.has(k);
+                    tr.appendChild(cell);
                 });
-                tr.addEventListener("click", () => { openFiller(f.name); });
+                actionable(tr, () => openFiller(f.name));
                 tbody.appendChild(tr);
             });
             paintSortArrows(htr, cols);
         }
+        const columnPicker = detailsBlock("Metadata columns", el("div", { class: "toolbar" }, fillerMetaKeys.map((key) => {
+            const checkbox = el("input", {
+                type: "checkbox", onchange: (event) => {
+                    if (event.currentTarget.checked) visibleMetadata.add(key); else visibleMetadata.delete(key);
+                    cols.forEach((column, index) => { htr.children[index].hidden = !!column.meta && !visibleMetadata.has(column.k); });
+                    paint(curQ);
+                }
+            });
+            checkbox.checked = visibleMetadata.has(key);
+            return el("label", {}, [checkbox, document.createTextNode(key)]);
+        })));
         root.appendChild(el("div", { class: "card" }, [
             el("div", { class: "card-head" }, [el("h2", { text: "Filler models" }), el("span", { class: "spring" }), note]),
-            el("div", { class: "card-body" }, searchBox("Filter fillers…", paint)),
+            el("div", { class: "card-body" }, [searchBox("Filter fillers…", paint), columnPicker]),
             el("div", { class: "tablewrap" }, table)
         ]));
         paint("");
@@ -934,37 +1006,130 @@
     }
 
     // ── Data cards ───────────────────────────────────────────────────────────
+    RENDER.checks = (root) => {
+        root.appendChild(el("h2", { text: "Build checks" }));
+        const checks = DATA.checks || [];
+        root.appendChild(checks.length ? tableOf(["Check", "Result", "Details"], checks.map((check) => [
+            check.name, check.status.replace(/_/g, " "), el("ul", {}, (check.details || []).map((detail) => el("li", { text: detail })))
+        ])) : el("p", { text: "Check results were not recorded in this report." }));
+        root.appendChild(el("h3", { text: "Warnings" }));
+        root.appendChild((DATA.warnings || []).length ? el("ul", {}, DATA.warnings.map((warning) => el("li", { text: warning }))) : el("p", { text: DATA.warnings ? "No build warnings." : "Warnings were not recorded." }));
+    };
+
+    RENDER.inputs = (root) => {
+        root.appendChild(el("h2", { text: "Build identity and inputs" }));
+        root.appendChild(tableOf(["Identity", "Value"], [
+            ["Configuration", DATA.config_path], ["Commit", evidence.full_commit || DATA.commit_hash || "Not recorded"],
+            ["Working tree", evidence.dirty == null ? "Not recorded" : evidence.dirty ? "Uncommitted changes" : "Clean"],
+            ["Built", DATA.date_time], ["Content fingerprint (SHA-256)", evidence.content_fingerprint || "Not recorded"],
+            ["Inputs stable during build", evidence.inputs_unchanged == null ? "Not verified" : evidence.inputs_unchanged ? "Yes" : "No"],
+            ["Output", evidence.output ? `${evidence.output.path} (${fmt(evidence.output.bytes)} bytes)` : "Not recorded for this build"],
+            ["Output SHA-256", evidence.output ? evidence.output.sha256 : "Not recorded"]
+        ]));
+        const host = el("div");
+        const paint = (query) => {
+            clear(host);
+            host.appendChild(tableOf(["Role", "Name", "Path (relative to configuration)", "Bytes", "SHA-256"],
+                inputs.filter((input) => `${input.name} ${input.role} ${input.path}`.toLowerCase().includes(query))
+                    .map((input) => [input.role, input.name, input.path, fmt(input.bytes), input.sha256])));
+        };
+        if (inputs.length) { root.appendChild(searchBox("Filter input files", paint)); root.appendChild(host); paint(""); }
+        else root.appendChild(el("p", { text: "Input identities were not recorded." }));
+        for (const layer of evidence.configuration_chain || []) {
+            root.appendChild(detailsBlock(`Configuration: ${layer.path}`, el("pre", { text: JSON.stringify(layer.values, null, 2) })));
+        }
+        if (evidence.resolved_configuration) root.appendChild(detailsBlock("Resolved configuration", el("pre", { text: JSON.stringify(evidence.resolved_configuration, null, 2) })));
+    };
+
     RENDER.data = (root) => {
         clear(root);
-        const grid = el("div", { class: "grid", style: "grid-template-columns:repeat(auto-fit,minmax(300px,1fr))" });
-        root.appendChild(grid);
-        grid.appendChild(listCard("Materials", DATA.materials || []));
-        grid.appendChild(listCard("Tallies", DATA.tallies || []));
-        grid.appendChild(listCard("Transforms", DATA.transforms || []));
-        grid.appendChild(listCard("Source", DATA.source ? [DATA.source] : []));
-    };
-    function listCard(title, items) {
-        const ul = el("div", {});
-        function paint(q) {
-            clear(ul);
-            const f = items.filter((x) => { return !q || x.toLowerCase().indexOf(q) >= 0; });
-            if (!f.length) { ul.appendChild(el("div", { class: "empty", text: "None" })); return; }
-            f.forEach((x) => {
-                ul.appendChild(el("div", { class: "leaf" }, [
-                    el("span", { class: "dot-swatch", style: "background:var(--accent)" }),
-                    el("span", { class: "en", text: x })
-                ]));
-            });
+        root.appendChild(el("h2", { text: "Selected data files" }));
+        const category = el("select", { class: "input", "aria-label": "Card category", onchange: () => paint(query) },
+            [el("option", { value: "all", text: "All card types" }), ...[...new Set(dataFiles.flatMap((file) => file.cards.map((entry) => entry.category)))].sort().map((value) => el("option", { value, text: value }))]);
+        let query = "";
+        const list = el("div", { class: "data-file-list" });
+        const transformPlacements = new Map();
+        for (const entry of envelopes) {
+            const reference = /^\*?\(\s*(\d+)\s*\)$/.exec(entry.transform || "");
+            if (reference) {
+                const id = Number(reference[1]);
+                if (!transformPlacements.has(id)) transformPlacements.set(id, []);
+                transformPlacements.get(id).push(entry);
+            }
         }
-        const body = el("div", { class: "card-body section-gap" });
-        if (items.length > 8) body.appendChild(searchBox(`Filter ${  title  }…`, paint));
-        body.appendChild(ul);
-        paint("");
-        return el("div", { class: "card" }, [
-            el("div", { class: "card-head" }, [el("h3", { text: title }), el("span", { class: "spring" }), el("span", { class: "chip", text: String(items.length) })]),
-            body
-        ]);
-    }
+        const note = el("div", { class: "count-note", "aria-live": "polite" });
+        function cardDetails(entry) {
+            const body = el("div", { class: "card-details" }, el("pre", { text: entry.text }));
+            if (entry.referenced_cell_runs && entry.referenced_cell_runs.length) {
+                body.appendChild(detailsBlock("Directly referencing cell IDs", () => el("pre", { text: entry.referenced_cell_runs.map(([start, end]) => start === end ? String(start) : `${start}-${end}`).join(", ") })));
+            }
+            const material = /^M(\d+)$/.exec(entry.name);
+            if (material) {
+                const using = fillers.filter((filler) => (filler.materials || []).includes(Number(material[1])));
+                body.appendChild(el("div", { class: "chips" }, using.map((filler) => el("button", { class: "textbtn", text: `${filler.name} (${filler.envelope_count} placements)`, onclick: () => openFiller(filler.name) }))));
+            }
+            const transform = /^\*?TR(\d+)$/.exec(entry.name);
+            if (transform) {
+                const using = transformPlacements.get(Number(transform[1])) || [];
+                body.appendChild(detailsBlock(`Envelope placements (${using.length})`, () => el("div", {}, using.map((placement) => el("button", { class: "textbtn", text: placement.envelope_name, onclick: () => openEnvelope(placement.envelope_name) })))));
+            }
+            return body;
+        }
+        function groupedCards(cards) {
+            const groups = new Map();
+            for (const card of cards) {
+                if (!groups.has(card.category)) groups.set(card.category, []);
+                groups.get(card.category).push(card);
+            }
+            return groups;
+        }
+        function paint(value) {
+            query = value; clear(list);
+            let shown = 0;
+            for (const file of dataFiles) {
+                const fileMatches = !query || `${file.name} ${file.path || ""} ${file.roles.join(" ")}`.toLowerCase().includes(query);
+                const matching = file.cards.filter((entry) => (category.value === "all" || entry.category === category.value)
+                    && (fileMatches || `${entry.name} ${entry.text}`.toLowerCase().includes(query)));
+                if (!matching.length && (!fileMatches || category.value !== "all")) continue;
+                shown++;
+                const renderContents = () => {
+                    const content = el("div", { class: "data-file-content" });
+                    for (const [type, cards] of groupedCards(matching)) {
+                        const group = el("section", { class: "data-card-group" }, el("h3", { text: `${type} (${fmt(cards.length)})` }));
+                        const identifiers = el("div", { class: "card-identifiers" });
+                        for (const entry of cards) {
+                            const detail = detailsBlock(entry.name, () => cardDetails(entry));
+                            detail.classList.add("data-card-entry");
+                            if (query && entry.name.toLowerCase().includes(query)) {
+                                const summary = detail.querySelector("summary");
+                                clear(summary); summary.appendChild(el("mark", { text: entry.name }));
+                            }
+                            identifiers.appendChild(detail);
+                        }
+                        group.appendChild(identifiers); content.appendChild(group);
+                    }
+                    if (!matching.length) content.appendChild(el("p", { class: "muted", text: evidence.data_cards && file.path ? "No parsed cards recorded in this file." : "Card inventory was not recorded for this file." }));
+                    return content;
+                };
+                const expanded = !!query || category.value !== "all";
+                const row = detailsBlock(file.name, expanded ? renderContents() : renderContents);
+                row.classList.add("data-file");
+                row.open = expanded;
+                const summary = row.querySelector("summary");
+                clear(summary);
+                const counts = [...groupedCards(file.cards)].map(([type, cards]) => `${fmt(cards.length)} ${type.toLowerCase()}`).join(" · ");
+                append(summary, [el("span", { class: "data-file-name", text: file.name }),
+                el("span", { class: "data-file-role", text: `Selected as: ${file.roles.map((role) => role === "transforms" ? "transformations" : role).join(", ")}` }),
+                el("span", { class: "data-file-path mono", text: file.path || "Path not recorded" }),
+                el("span", { class: "data-file-counts", text: counts || (evidence.data_cards && file.path ? "0 parsed cards" : "Card inventory not recorded") })]);
+                list.appendChild(row);
+            }
+            note.textContent = `${shown} / ${nData} files`;
+            if (!shown) list.appendChild(el("p", { class: "empty", text: nData ? "No matching data files." : "No data files selected." }));
+        }
+        root.appendChild(el("div", { class: "toolbar" }, [category, searchBox("Filter files, card IDs, or definitions", paint), note]));
+        root.appendChild(list); paint("");
+    };
 
     // ── Diff ─────────────────────────────────────────────────────────────────
     RENDER.diff = (root) => {
@@ -975,7 +1140,7 @@
             el("div", { text: "Drop a build_report.json here, or click to choose a file." })
         ]);
         const fileInp = el("input", { type: "file", accept: "application/json,.json", class: "hidden" });
-        dz.addEventListener("click", () => { fileInp.click(); });
+        actionable(dz, () => fileInp.click());
         dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("hot"); });
         dz.addEventListener("dragleave", () => { dz.classList.remove("hot"); });
         dz.addEventListener("drop", (e) => {
@@ -990,20 +1155,28 @@
             const fr = new FileReader();
             fr.onload = () => {
                 try { renderDiff(JSON.parse(fr.result)); }
-                catch (err) { clear(out); out.appendChild(el("div", { class: "empty", text: `Could not parse JSON: ${  err}` })); }
+                catch (err) { clear(out); out.appendChild(el("div", { class: "empty", text: `Could not parse JSON: ${err}` })); }
             };
             fr.readAsText(file);
         }
         function renderDiff(other) {
             clear(out);
-            const oEnv = {}; (other.envelope_entries || []).forEach((e) => { oEnv[e.envelope_name] = e; });
-            const cEnv = {}; envelopes.forEach((e) => { cEnv[e.envelope_name] = e; });
+            if (!other || !Array.isArray(other.envelope_entries) || !Array.isArray(other.filler_entries) || ![1, 2].includes(other.schema_version)) {
+                out.appendChild(el("p", { class: "empty", text: "Unsupported report: expected schema 1 or 2 with envelope and filler entries." }));
+                return;
+            }
+            const oEnv = Object.create(null); other.envelope_entries.forEach((e) => { oEnv[e.envelope_name] = e; });
+            const cEnv = Object.create(null); envelopes.forEach((e) => { cEnv[e.envelope_name] = e; });
+            out.appendChild(tableOf(["Build", "Configuration", "Commit", "Built"], [
+                ["Baseline", other.config_path || "Unknown", other.commit_hash || "Unknown", other.date_time || "Unknown"],
+                ["Current", DATA.config_path, DATA.commit_hash, DATA.date_time]
+            ]));
             const added = [], removed = [], changed = [];
             envelopes.forEach((e) => {
                 const o = oEnv[e.envelope_name];
                 if (!o) added.push(e);
-                else if ((o.filler_name || null) !== (e.filler_name || null) || (o.transform || null) !== (e.transform || null))
-                    changed.push({ name: e.envelope_name, from: o.filler_name || "null", to: e.filler_name || "null", tf: `${o.transform || ""  }→${  e.transform || ""}` });
+                else if ((o.filler_name || null) !== (e.filler_name || null) || (o.transform || null) !== (e.transform || null) || o.universe_id !== e.universe_id || statusOf(o) !== statusOf(e))
+                    changed.push({ name: e.envelope_name, before: o, after: e });
             });
             (other.envelope_entries || []).forEach((e) => { if (!cEnv[e.envelope_name]) removed.push(e); });
 
@@ -1012,36 +1185,75 @@
                 kpi(removed.length, "Removed envelopes"),
                 kpi(changed.length, "Changed assignments")
             ]));
-            out.children[0].children[0].querySelector(".v").style.color = "var(--ok)";
-            out.children[0].children[1].querySelector(".v").style.color = "var(--danger)";
-            out.children[0].children[2].querySelector(".v").style.color = "var(--warn)";
+            out.querySelectorAll(".kpi .v").forEach((value, index) => {
+                value.style.color = ["var(--ok)", "var(--danger)", "var(--warn)"][index];
+            });
 
-            if (changed.length) {
-                const tb = el("tbody");
-                changed.forEach((c) => {
-                    tb.appendChild(el("tr", {}, [
-                        el("td", { class: "name", text: c.name }),
-                        el("td", { class: "diff-del", text: c.from }),
-                        el("td", { text: "→" }),
-                        el("td", { class: "diff-add", text: c.to })
-                    ]));
-                });
-                out.appendChild(el("div", { class: "card" }, [
-                    el("div", { class: "card-head" }, el("h3", { text: "Changed assignments (this build ← other)" })),
-                    el("div", { class: "tablewrap" }, el("table", { class: "data" }, [
-                        el("thead", {}, el("tr", {}, [el("th", { text: "Envelope" }), el("th", { text: "Other" }), el("th", {}), el("th", { text: "This build" })])),
-                        tb
-                    ]))
-                ]));
+            if (changed.length) out.appendChild(card("Changed assignments", tableOf(
+                ["Envelope", "Baseline filler / status", "Current filler / status", "Universe (before / after)", "Transform (before / after)"],
+                changed.map((change) => [
+                    el("button", { class: "textbtn", text: change.name, onclick: () => openEnvelope(change.name) }),
+                    change.before.filler_name || statusLabel(statusOf(change.before)), change.after.filler_name || statusLabel(statusOf(change.after)),
+                    `${change.before.universe_id ?? "None"} / ${change.after.universe_id ?? "None"}`,
+                    `${change.before.transform || "None"} / ${change.after.transform || "None"}`
+                ]))));
+
+            const oldEvidence = other.evidence || {};
+            const oldInputs = oldEvidence.inputs || [];
+            const keyOf = (input) => `${input.role}:${input.name}`;
+            const previousInputs = new Map(oldInputs.map((input) => [keyOf(input), input]));
+            const currentInputs = new Map(inputs.map((input) => [keyOf(input), input]));
+            const inputChanges = [];
+            for (const key of new Set([...previousInputs.keys(), ...currentInputs.keys()])) {
+                const before = previousInputs.get(key), after = currentInputs.get(key);
+                if (before && after && before.sha256 === after.sha256 && before.path === after.path) continue;
+                const input = after || before;
+                const impacts = new Set([...envelopes, ...other.envelope_entries]
+                    .filter((entry) => (input.role === "filler" || input.role === "filler_metadata") ? entry.filler_name === input.name : true)
+                    .map((entry) => entry.envelope_name));
+                inputChanges.push([input.role, input.name, !before ? "Added" : !after ? "Removed" : before.sha256 !== after.sha256 ? "Content changed" : "Path changed",
+                before ? before.path : "None", after ? after.path : "None",
+                input.role === "filler" || input.role === "filler_metadata" ? `${fmt(impacts.size)} placements (baseline/current union)` : "Build-wide input"]);
             }
+            if (inputChanges.length) out.appendChild(card("Input changes and impact", tableOf(["Role", "Input", "Change", "Baseline path", "Current path", "Impact"], inputChanges)));
+            if (!oldInputs.length || !inputs.length) out.appendChild(el("p", { class: "notice", text: "Content comparison is incomplete: input hashes were not recorded for one or both builds." }));
+
+            const previousFillers = new Map(other.filler_entries.map((filler) => [filler.name, filler]));
+            const componentChanges = [];
+            for (const filler of fillers) {
+                const previous = previousFillers.get(filler.name);
+                if (!previous) continue;
+                for (const field of ["universe_id", "cell_count", "surface_count", "materials", "cell_id_runs", "surface_id_runs"]) {
+                    if (JSON.stringify(previous[field]) !== JSON.stringify(filler[field])) {
+                        const summary = (value) => field.endsWith("_runs") ? `${(value || []).length} ID runs` : metaVal(value);
+                        componentChanges.push([filler.name, field, summary(previous[field]), summary(filler[field]), `${fmt(filler.envelope_count)} current placements`]);
+                    }
+                }
+            }
+            if (componentChanges.length) out.appendChild(card("Component changes", tableOf(["Filler", "Field", "Baseline", "Current", "Impact"], componentChanges)));
+            const summaryChanges = [];
+            for (const field of ["total_cells", "total_surfaces", "materials", "transforms", "source", "tallies"]) {
+                if (JSON.stringify(other[field]) !== JSON.stringify(DATA[field])) summaryChanges.push([field, metaVal(other[field]), metaVal(DATA[field])]);
+            }
+            if (summaryChanges.length) out.appendChild(card("Build summary changes", tableOf(["Field", "Baseline", "Current"], summaryChanges)));
+            const cardKey = (entry) => `${entry.category}:${entry.name}`;
+            const previousCards = new Map((oldEvidence.data_cards || []).map((entry) => [cardKey(entry), entry]));
+            const currentCards = new Map(dataCards.map((entry) => [cardKey(entry), entry]));
+            const cardChanges = [];
+            for (const key of new Set([...previousCards.keys(), ...currentCards.keys()])) {
+                const before = previousCards.get(key), after = currentCards.get(key);
+                if (before && after && before.text === after.text) continue;
+                cardChanges.push([(after || before).name, before ? el("pre", { text: before.text }) : "Absent", after ? el("pre", { text: after.text }) : "Absent"]);
+            }
+            if (cardChanges.length) out.appendChild(detailsBlock(`Data card changes (${cardChanges.length})`, tableOf(["Card", "Baseline", "Current"], cardChanges)));
             [["Added in this build", added, "tag-added"], ["Removed (only in other)", removed, "tag-removed"]].forEach((grp) => {
                 if (!grp[1].length) return;
                 const chips = el("div", { class: "chips" });
-                grp[1].forEach((e) => { chips.appendChild(el("span", { class: `chip ${  grp[2]}`, text: e.envelope_name })); });
+                grp[1].forEach((e) => { chips.appendChild(el("span", { class: `chip ${grp[2]}`, text: e.envelope_name })); });
                 out.appendChild(el("div", { class: "card" }, [el("div", { class: "card-head" }, el("h3", { text: grp[0] })), el("div", { class: "card-body" }, chips)]));
             });
-            if (!added.length && !removed.length && !changed.length)
-                out.appendChild(el("div", { class: "empty", text: "No differences in envelope assignments." }));
+            if (!added.length && !removed.length && !changed.length && !inputChanges.length && !componentChanges.length && !summaryChanges.length && !cardChanges.length)
+                out.appendChild(el("div", { class: "empty", text: "No differences in recorded build content." }));
         }
         root.appendChild(el("div", { class: "card" }, el("div", { class: "card-body" }, dz)));
         root.appendChild(fileInp);
@@ -1051,9 +1263,56 @@
     // ── Filler detail drawer ─────────────────────────────────────────────────
     const scrim = el("div", { class: "scrim", onclick: closeDrawer });
     const drawer = el("div", { class: "drawer" });
+    drawer.hidden = true;
     document.body.appendChild(scrim);
     document.body.appendChild(drawer);
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+    let previousFocus = null;
+    drawer.setAttribute("role", "dialog");
+    drawer.setAttribute("aria-modal", "true");
+    drawer.setAttribute("aria-label", "Model details");
+    document.addEventListener("keydown", (event) => {
+        if (!drawer.classList.contains("open")) return;
+        if (event.key === "Escape") closeDrawer();
+        if (event.key === "Tab") {
+            const focusable = [...drawer.querySelectorAll("button, input, select, summary, [tabindex='0']")];
+            const first = focusable[0], last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+    });
+
+    function revealDrawer(hash) {
+        if (!drawer.classList.contains("open")) previousFocus = document.activeElement;
+        drawer.hidden = false;
+        scrim.classList.add("open");
+        drawer.classList.add("open");
+        app.setAttribute("inert", "");
+        document.body.classList.add("drawer-open");
+        setHash(hash);
+        const first = drawer.querySelector("button");
+        if (first) first.focus();
+    }
+
+    function openEnvelope(name) {
+        const entry = envelopes.find((item) => item.envelope_name === name);
+        if (!entry) return;
+        clear(drawer);
+        drawer.appendChild(el("div", { class: "drawer-head" }, [el("h3", { class: "spring", text: name }),
+        el("button", { class: "iconbtn", "aria-label": "Close details", text: "\u00d7", onclick: closeDrawer })]));
+        const structure = inputs.find((input) => input.role === "envelope_structure");
+        const body = el("div", { class: "drawer-body" }, [tableOf(["Placement", "Value"], [
+            ["Status", statusLabel(statusOf(entry))], ["Cell IDs", (entry.cell_ids || []).join(", ") || "Not recorded"],
+            ["Envelope structure", structure ? structure.path : "Not recorded"],
+            ["Assigned by", (evidence.assignment_origins || {})[name] || "Not recorded"],
+            ["Universe", entry.universe_id == null ? "None" : String(entry.universe_id)],
+            ["Transform", entry.transform || "None"]
+        ])]);
+        if (entry.filler_name) body.appendChild(el("button", { class: "btn", text: `Filler: ${entry.filler_name}`, onclick: () => openFiller(entry.filler_name) }));
+        const metadata = entry.metadata || {};
+        if (Object.keys(metadata).length) body.appendChild(tableOf(["Metadata", "Value"], Object.entries(metadata).map(([key, value]) => [key, metaVal(value)])));
+        drawer.appendChild(body);
+        revealDrawer({ envelope: name, filler: null });
+    }
 
     function openFiller(name) {
         const f = fillerByName[name];
@@ -1061,7 +1320,7 @@
         clear(drawer);
         const desc = descOf(f);
         drawer.appendChild(el("div", { class: "drawer-head" }, [
-            el("span", { class: "dot-swatch", style: `background:${  uColor(f.universe_id)  };width:16px;height:16px;margin-top:4px` }),
+            el("span", { class: "dot-swatch", style: `background:${uColor(f.universe_id)};width:16px;height:16px;margin-top:4px` }),
             el("div", { class: "spring" }, [
                 el("h3", { text: f.name }),
                 desc ? el("div", { class: "muted", style: "font-size:.84rem;margin-top:2px", text: desc }) : null
@@ -1075,9 +1334,11 @@
         row("Envelopes filled", String(f.envelope_count));
         row("Cells", fmt(f.cell_count));
         row("Surfaces", fmt(f.surface_count));
+        const source = inputFor(name);
+        if (source) { row("Input file", source.path); row("SHA-256", source.sha256); }
         const cr = idExtent(f.cell_id_runs), sr = idExtent(f.surface_id_runs);
-        if (cr) row("Cell ids", `${fmt(cr[0])  } – ${  fmt(cr[1])  } · ${  f.cell_id_runs.length  } run${  f.cell_id_runs.length > 1 ? "s" : ""}`);
-        if (sr) row("Surface ids", `${fmt(sr[0])  } – ${  fmt(sr[1])  } · ${  f.surface_id_runs.length  } run${  f.surface_id_runs.length > 1 ? "s" : ""}`);
+        if (cr) row("Cell ids", `${fmt(cr[0])} – ${fmt(cr[1])} · ${f.cell_id_runs.length} run${f.cell_id_runs.length > 1 ? "s" : ""}`);
+        if (sr) row("Surface ids", `${fmt(sr[0])} – ${fmt(sr[1])} · ${f.surface_id_runs.length} run${f.surface_id_runs.length > 1 ? "s" : ""}`);
         body.appendChild(kv);
 
         // Arbitrary, project-defined metadata (rendered generically).
@@ -1093,36 +1354,55 @@
         }
 
         if (f.materials && f.materials.length) {
-            body.appendChild(el("div", { class: "subhead", text: `Materials (${  f.materials.length  })` }));
+            body.appendChild(el("div", { class: "subhead", text: `Materials (${f.materials.length})` }));
             const mc = el("div", { class: "chips" });
-            f.materials.forEach((m) => { mc.appendChild(el("span", { class: "chip", text: `mat ${  m}` })); });
+            f.materials.forEach((material) => {
+                mc.appendChild(el("button", {
+                    class: "chip", text: `mat ${material}`, onclick: () => {
+                        closeDrawer(); go("data"); const search = $("#panel-data input"); if (search) { search.value = `m${material} `; search.dispatchEvent(new window.Event("input")); }
+                    }
+                }));
+            });
             body.appendChild(mc);
         }
 
         const filledEnvs = envelopes.filter((e) => { return e.filler_name === name; });
         if (filledEnvs.length) {
-            body.appendChild(el("div", { class: "subhead", text: `Fills ${  filledEnvs.length  } envelope${  filledEnvs.length > 1 ? "s" : ""}` }));
+            body.appendChild(el("div", { class: "subhead", text: `Fills ${filledEnvs.length} envelope${filledEnvs.length > 1 ? "s" : ""}` }));
             const list = el("div", {});
-            filledEnvs.forEach((e) => {
-                const r = el("div", { class: "leaf", style: "padding-left:8px" }, [
-                    el("span", { class: "en", text: e.envelope_name })
-                ]);
-                if (e.transform) r.appendChild(el("span", { class: "chip", text: e.transform }));
-                const d = descOf(e);
-                if (d) r.appendChild(el("span", { class: "desc", text: d }));
-                list.appendChild(r);
-            });
-            body.appendChild(list);
+            const note = el("div", { class: "count-note" });
+            let limit = 100, query = "";
+            const more = el("button", { class: "btn", text: "Show more", onclick: () => { limit += 100; paintPlacements(); } });
+            function paintPlacements() {
+                clear(list);
+                const matching = filledEnvs.filter((entry) => !query || matchEnv(entry).includes(query));
+                note.textContent = `${Math.min(limit, matching.length)} / ${matching.length} placements`;
+                more.hidden = limit >= matching.length;
+                matching.slice(0, limit).forEach((e) => {
+                    const r = el("div", { class: "leaf", style: "padding-left:8px" }, [
+                        el("span", { class: "en", text: e.envelope_name })
+                    ]);
+                    if (e.transform) r.appendChild(el("span", { class: "chip", text: e.transform }));
+                    const d = descOf(e);
+                    if (d) r.appendChild(el("span", { class: "desc", text: d }));
+                    actionable(r, () => openEnvelope(e.envelope_name));
+                    list.appendChild(r);
+                });
+            }
+            body.appendChild(searchBox("Filter placements", (value) => { query = value; limit = 100; paintPlacements(); }));
+            body.appendChild(note); body.appendChild(list); body.appendChild(more); paintPlacements();
         }
         drawer.appendChild(body);
-        scrim.classList.add("open");
-        drawer.classList.add("open");
-        setHash({ filler: name });
+        revealDrawer({ filler: name, envelope: null });
     }
     function closeDrawer() {
         scrim.classList.remove("open");
         drawer.classList.remove("open");
-        setHash({ filler: null });
+        drawer.hidden = true;
+        app.removeAttribute("inert");
+        document.body.classList.remove("drawer-open");
+        setHash({ filler: null, envelope: null });
+        if (previousFocus && previousFocus.isConnected) previousFocus.focus();
     }
 
     // ── Boot ─────────────────────────────────────────────────────────────────
@@ -1137,5 +1417,6 @@
         const h = getHash();
         go(h.tab || "overview");
         if (h.filler) setTimeout(() => { openFiller(h.filler); }, 60);
+        else if (h.envelope) setTimeout(() => { openEnvelope(h.envelope); }, 60);
     })();
 })();

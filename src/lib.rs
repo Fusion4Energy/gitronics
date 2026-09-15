@@ -1,4 +1,5 @@
 mod build_model;
+mod build_record;
 mod build_report;
 mod cli;
 mod error;
@@ -7,6 +8,7 @@ mod mcnp_io;
 mod migrate_model;
 mod model_config;
 mod project_manager;
+mod provenance;
 mod python;
 mod runtime;
 mod types;

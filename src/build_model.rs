@@ -1,4 +1,4 @@
-use crate::build_report::BuildReport;
+use crate::build_record::{BuildRecord, CheckKind};
 use crate::error::{GitronicsError, MergeConflict};
 use crate::fs_utils::{parent_or_cwd, write_output_gitignore};
 use crate::project_manager::ProjectManager;
@@ -10,12 +10,29 @@ use log::{info, warn};
 use migjorn::Model;
 use regex::Regex;
 use std::collections::HashSet;
-use std::fs::{self, File};
+#[cfg(test)]
+use std::fs;
+use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::{collections::HashMap, path::Path, sync::LazyLock};
 
 pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), GitronicsError> {
     init_thread_pool();
+    let mut record = BuildRecord::default();
+    let result = execute_build(config_path, output_path, &mut record);
+    record.finish(result, output_path)?;
+    info!(
+        "Build completed successfully in: {}",
+        output_path.join("assembled.mcnp").display()
+    );
+    Ok(())
+}
+
+fn execute_build(
+    config_path: &Path,
+    output_path: &Path,
+    record: &mut BuildRecord,
+) -> Result<(), GitronicsError> {
     info!(
         "Starting model build process for: {}",
         config_path.display()
@@ -53,8 +70,10 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     info!("Adapting envelope structure with FILL cards");
     add_fill_cards_to_envelopes(&project_manager, &universe_ids, &mut envelope_structure)?;
 
+    record.evidence = project_manager.take_evidence();
+
     // Collect build-report data before the models are consumed by composition.
-    let report = BuildReport::from_build(
+    record.capture(
         config_path,
         get_hash_of_project(project_dir(config_path)),
         &project_manager,
@@ -62,6 +81,7 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
         &fillers,
         &universe_ids,
     );
+    record.check(CheckKind::EnvelopeAssignments, Ok(()))?;
 
     // Compose: drop the ignored data blocks, then merge every filler's geometry
     // and the configured data cards into the envelope structure
@@ -82,33 +102,32 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    if !data_text.is_empty() {
-        // Block structure is positional — title line, then the cell, surface and
-        // data blocks separated by blank lines — so this parses to a model whose
-        // only content cards are the data cards. `merge` appends them at the end
-        // of the data block and indexes their material/transform ids, which is
-        // exactly what re-parsing the whole assembled source used to buy, for the
-        // size of the data cards rather than the size of the whole model.
-        to_merge.push((
-            "the configured data cards".to_string(),
-            Model::parse(&format!("gitronics data cards\n\n\n{data_text}\n")),
-        ));
+    if let Some(data_model) = parse_configured_data(&data_text, record)? {
+        to_merge.push(("the configured data cards".to_string(), data_model));
     }
 
-    merge_labeled(
+    let merge_result = merge_labeled(
         &mut envelope_structure,
         "the envelope structure".to_string(),
         to_merge,
     )
-    .map_err(GitronicsError::MergeConflicts)?;
+    .map_err(GitronicsError::MergeConflicts);
+    record.check(CheckKind::Collisions, merge_result)?;
 
     // Validate the assembled model. `merge` indexed every card it absorbed, so
     // this reads the same ids a re-parse would have built.
     info!("Performing validation checks on the assembled model");
     let problems = envelope_structure.validate();
-    if !problems.is_empty() {
-        return Err(GitronicsError::InvalidModel(problems));
-    }
+    record.evidence.material_references(&envelope_structure);
+    record.check(
+        CheckKind::References,
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(GitronicsError::InvalidModel(problems))
+        },
+    )?;
+    record.verify_inputs()?;
 
     // Write the assembled model with the provenance banner.
     info!("Writing assembled model to file");
@@ -120,20 +139,34 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     )?;
     write_output_gitignore(project_manager.output_path())?;
 
-    // Write the HTML build report and its machine-readable JSON manifest.
-    info!("Writing build report");
-    let json = report.to_json();
-    let report_path = project_manager.output_path().join("build_report.html");
-    fs::write(&report_path, report.generate_html_from_json(&json))
-        .map_err(|source| GitronicsError::io_path(&report_path, source))?;
-    let json_path = project_manager.output_path().join("build_report.json");
-    fs::write(&json_path, &json).map_err(|source| GitronicsError::io_path(&json_path, source))?;
-
-    info!(
-        "Build completed successfully in: {}",
-        assembled_path.display()
-    );
+    record.evidence.record_output(&assembled_path)?;
     Ok(())
+}
+
+fn parse_configured_data(
+    text: &str,
+    record: &mut BuildRecord,
+) -> Result<Option<Model>, GitronicsError> {
+    if text.is_empty() {
+        record.skip(CheckKind::DataParsing);
+        return Ok(None);
+    }
+    let model = Model::parse(&format!("gitronics data cards\n\n\n{text}\n"));
+    let errors = model
+        .diagnostics()
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == migjorn::Severity::Error)
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect();
+    record.warnings.extend(
+        model
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == migjorn::Severity::Warning)
+            .map(|diagnostic| diagnostic.message.clone()),
+    );
+    record.parsing_check(errors)?;
+    Ok(Some(model))
 }
 
 /// `Model::merge`, but reporting which labeled component a collision came
@@ -167,7 +200,7 @@ fn merge_labeled(
     })
 }
 
-static ENVELOPE_RE: LazyLock<Regex> =
+pub(crate) static ENVELOPE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\s*@env:\s*([[:alnum:]_.-]+)\s*").unwrap());
 
 /// The directory that contains the configuration file — the anchor for git
@@ -218,7 +251,7 @@ fn add_fill_cards_to_envelopes(
 
     envelope_structure.try_for_each_cell_mut(|cell| -> Result<(), GitronicsError> {
         let original_text = cell.view().text();
-        let Some(caps) = ENVELOPE_RE.captures(&original_text) else {
+        let Some(caps) = ENVELOPE_RE.captures(original_text) else {
             return Ok(());
         };
         let envelope_name =

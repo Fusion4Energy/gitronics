@@ -1,10 +1,11 @@
 use super::{FillerRecord, Metadata, ProjectManager};
 use crate::error::GitronicsError;
+use crate::provenance::SourceFile;
 use crate::types::{EnvelopeName, FillerName, TRANSFORMATIONS_KEY};
 use indexmap::IndexMap;
 use log::warn;
 use serde_json::Value;
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
 
 impl ProjectManager {
     /// Loads and caches metadata for the given fillers.
@@ -29,8 +30,9 @@ impl ProjectManager {
         if !metadata_path.exists() {
             return Err(GitronicsError::MetadataNotFound(filler_name.into()));
         }
-        let yaml_content = fs::read_to_string(&metadata_path)
-            .map_err(|source| GitronicsError::io_path(&metadata_path, source))?;
+        let (yaml_content, source) = SourceFile::read(&metadata_path)?;
+        self.evidence
+            .record_input("filler_metadata", filler_name.as_ref(), source);
 
         // Parse the whole file as a free-form, order-preserving map.
         let mut raw: Metadata =
@@ -80,9 +82,17 @@ impl ProjectManager {
         if !metadata_path.exists() {
             return;
         }
-        let yaml_content = match fs::read_to_string(&metadata_path) {
-            Ok(content) => content,
+        let yaml_content = match SourceFile::read(&metadata_path) {
+            Ok((content, source)) => {
+                self.evidence
+                    .record_input("envelope_metadata", structure_name.as_ref(), source);
+                content
+            }
             Err(e) => {
+                self.report_warnings.push(format!(
+                    "Could not read envelope metadata {}: {e}",
+                    metadata_path.display()
+                ));
                 warn!(
                     "Could not read envelope metadata `{}`: {e}",
                     metadata_path.display()
@@ -94,6 +104,10 @@ impl ProjectManager {
         let top: IndexMap<String, Value> = match serde_saphyr::from_str(&yaml_content) {
             Ok(parsed) => parsed,
             Err(e) => {
+                self.report_warnings.push(format!(
+                    "Could not parse envelope metadata {}: {e}",
+                    metadata_path.display()
+                ));
                 warn!(
                     "Could not parse envelope metadata `{}`: {e}",
                     metadata_path.display()
@@ -103,6 +117,10 @@ impl ProjectManager {
         };
 
         let Some(Value::Object(envelopes)) = top.get("envelopes") else {
+            self.report_warnings.push(format!(
+                "Envelope metadata {} has no envelopes map; ignored",
+                metadata_path.display()
+            ));
             warn!(
                 "Envelope metadata `{}` has no `envelopes:` map; ignoring.",
                 metadata_path.display()

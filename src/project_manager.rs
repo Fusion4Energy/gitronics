@@ -1,6 +1,7 @@
 use crate::error::GitronicsError;
 use crate::fs_utils::get_file_paths;
 use crate::model_config::ModelConfig;
+use crate::provenance::Evidence;
 use crate::types::{EnvelopeName, FileName, FillerName};
 use indexmap::IndexMap;
 use serde_json::Value;
@@ -33,6 +34,8 @@ pub struct ProjectManager {
     /// Arbitrary, project-defined metadata for each envelope, from the
     /// envelope-structure `.metadata` sidecar (best-effort; empty when absent).
     envelope_metadata: HashMap<EnvelopeName, Metadata>,
+    pub(crate) report_warnings: Vec<String>,
+    evidence: Evidence,
 }
 
 impl ProjectManager {
@@ -41,15 +44,23 @@ impl ProjectManager {
         let output_path = output_path.to_path_buf();
         create_dir_all(&output_path)
             .map_err(|source| GitronicsError::io_path(&output_path, source))?;
-        let model_config = ModelConfig::load(config_path)?;
+        let (model_config, sources) = ModelConfig::load_with_sources(config_path)?;
         let file_paths = index_project_files(&model_config)?;
+        let evidence = Evidence::from_configuration(&model_config, sources);
         Ok(Self {
             file_paths,
             output_path,
             model_config,
             filler_data: HashMap::new(),
             envelope_metadata: HashMap::new(),
+            report_warnings: Vec::new(),
+            evidence,
         })
+    }
+
+    pub(crate) fn take_evidence(&mut self) -> Evidence {
+        self.evidence.finish_inputs(&self.model_config);
+        std::mem::take(&mut self.evidence)
     }
 
     /// Retrieves the full path for a project file by its stem name.

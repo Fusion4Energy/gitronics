@@ -6,7 +6,12 @@ description = "Build MCNP neutronics models from modular components"
 license = "EUPL-1.2"
 # The published crate needs only the three files `include_str!` inlines; the
 # viewer's test harness and its dependencies are development-only.
-exclude = ["report/test", "report/node_modules", "report/package.json", "report/package-lock.json"]
+exclude = [
+    "report/test",
+    "report/node_modules",
+    "report/package.json",
+    "report/package-lock.json",
+]
 
 [[bin]]
 name = "gitronics"
@@ -38,6 +43,8 @@ indexmap = { version = "2.14.0", features = ["serde"] }
 git2 = "0.21.0"
 dunce = "1.0.5"
 path-clean = "1.0.1"
+sha2 = "0.10"
+pathdiff = "0.2"
 
 [dev-dependencies]
 tempfile = "3.0"
