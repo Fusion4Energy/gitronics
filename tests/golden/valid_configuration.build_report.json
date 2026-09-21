@@ -33,9 +33,7 @@
       "details": []
     }
   ],
-  "warnings": [
-    "Envelope metadata /home/cubial/Coding/gitronics/example_project/reference_model/envelope_structure.metadata has no envelopes map; ignored"
-  ],
+  "warnings": [],
   "evidence": {
     "inputs": [
       {

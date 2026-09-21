@@ -106,3 +106,17 @@ fn a_missing_sidecar_is_silent() {
     assert!(warnings(&report).is_empty(), "{:?}", warnings(&report));
     assert!(entry(&report, "alpha").get("metadata").is_none());
 }
+
+#[test]
+fn a_sidecar_without_an_envelopes_map_is_silent() {
+    for sidecar in ["", "owner: neutronics team\n", "envelopes: [alpha, beta]\n"] {
+        let report = build_with_sidecar(Some(sidecar));
+
+        assert!(
+            warnings(&report).is_empty(),
+            "{sidecar:?}: {:?}",
+            warnings(&report)
+        );
+        assert!(entry(&report, "alpha").get("metadata").is_none());
+    }
+}

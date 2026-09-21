@@ -121,15 +121,8 @@ impl ProjectManager {
             }
         };
 
+        // No `envelopes:` map: the sidecar holds only project-specific fields.
         let Some(Value::Object(envelopes)) = top.get(ENVELOPES_KEY) else {
-            self.report_warnings.push(format!(
-                "Envelope metadata {} has no envelopes map; ignored",
-                metadata_path.display()
-            ));
-            warn!(
-                "Envelope metadata `{}` has no `envelopes:` map; ignoring.",
-                metadata_path.display()
-            );
             return;
         };
 
