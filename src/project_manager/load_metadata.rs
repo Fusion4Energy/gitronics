@@ -5,7 +5,11 @@ use crate::types::{EnvelopeName, FillerName, TRANSFORMATIONS_KEY};
 use indexmap::IndexMap;
 use log::warn;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// The only top-level key gitronics reads from an envelope-structure metadata
+/// sidecar; every other top-level key is project-specific and left alone.
+const ENVELOPES_KEY: &str = "envelopes";
 
 impl ProjectManager {
     /// Loads and caches metadata for the given fillers.
@@ -67,10 +71,11 @@ impl ProjectManager {
     }
 
     /// Loads the arbitrary metadata sidecar of the envelope-structure model
-    /// (`<envelope_structure>.metadata`), keyed per envelope. The only expected
-    /// shape is a top-level `envelopes:` map; each envelope's value is stored
-    /// verbatim as free-form metadata. Best-effort: a missing or malformed file
-    /// is logged and ignored so it never blocks a build.
+    /// (`<envelope_structure>.metadata`), keyed per envelope. Only the top-level
+    /// `envelopes:` map is read, and each envelope's value is stored verbatim as
+    /// free-form metadata; any other top-level key is the project's own and is
+    /// ignored. Best-effort: a missing or malformed file is logged and ignored
+    /// so it never blocks a build.
     pub fn load_envelope_metadata(&mut self) {
         let Some(structure_name) = self.model_config.envelope_structure() else {
             return;
@@ -116,7 +121,7 @@ impl ProjectManager {
             }
         };
 
-        let Some(Value::Object(envelopes)) = top.get("envelopes") else {
+        let Some(Value::Object(envelopes)) = top.get(ENVELOPES_KEY) else {
             self.report_warnings.push(format!(
                 "Envelope metadata {} has no envelopes map; ignored",
                 metadata_path.display()
@@ -131,15 +136,50 @@ impl ProjectManager {
         for (name, value) in envelopes {
             let fields: Metadata = match value {
                 Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-                // A non-map entry (e.g. just a bare description) is still kept.
+                // A non-map entry is still kept. A bare string is a description
+                // (the report shows that key specially); anything else is
+                // stored under a generic `value` key.
                 other => {
+                    let key = if other.is_string() {
+                        "description"
+                    } else {
+                        "value"
+                    };
                     let mut m = Metadata::new();
-                    m.insert("value".to_string(), other.clone());
+                    m.insert(key.to_string(), other.clone());
                     m
                 }
             };
             self.envelope_metadata
                 .insert(EnvelopeName::new(name.clone()), fields);
         }
+    }
+
+    /// Warns about envelope metadata whose name matches no `$ @env:` marker in
+    /// the envelope structure: such an entry is never shown anywhere, so it is
+    /// usually a misspelt name or an envelope that was removed from the file.
+    /// Call after [`Self::load_envelope_metadata`].
+    pub fn warn_about_unmatched_envelope_metadata(
+        &mut self,
+        marked_envelopes: &HashSet<EnvelopeName>,
+    ) {
+        let mut unmatched: Vec<String> = self
+            .envelope_metadata
+            .keys()
+            .filter(|name| !marked_envelopes.contains(*name))
+            .map(ToString::to_string)
+            .collect();
+        if unmatched.is_empty() {
+            return;
+        }
+        unmatched.sort();
+        let names = unmatched.join(", ");
+        self.report_warnings.push(format!(
+            "Envelope metadata defines envelopes that are not marked in the envelope structure: {names}"
+        ));
+        warn!(
+            "The envelope metadata defines envelopes that have no `$ @env:name` marker in the \
+             envelope structure file, so they are ignored: {names}"
+        );
     }
 }

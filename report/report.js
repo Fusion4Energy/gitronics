@@ -221,6 +221,9 @@
     const nFilled = envelopes.filter((e) => { return e.filler_name; }).length;
     const nNull = envelopes.filter((entry) => statusOf(entry) === "empty").length;
     const nUnconfigured = envelopes.filter((entry) => statusOf(entry) === "unconfigured").length;
+    const nWithMetadata = envelopes.filter((entry) => entry.metadata && Object.keys(entry.metadata).length).length;
+    // Only worth stating when the metadata is partial: none means no sidecar, all needs no note.
+    const metadataNote = nWithMetadata > 0 && nWithMetadata < envelopes.length ? ` · ${nWithMetadata} with metadata` : "";
     const completeness = envelopes.length ? Math.round((envelopes.length - nUnconfigured) / envelopes.length * 100) : 100;
     const coverage = envelopes.length ? Math.round((nFilled / envelopes.length) * 100) : 0;
     const nData = dataFiles.length;
@@ -398,7 +401,7 @@
         const kpis = el("div", { class: "grid kpis" }, [
             kpi(DATA.total_cells, "Cells"),
             kpi(DATA.total_surfaces, "Surfaces"),
-            kpi(envelopes.length, "Envelopes", `${nFilled} filled · ${nNull} explicitly empty`),
+            kpi(envelopes.length, "Envelopes", `${nFilled} filled · ${nNull} explicitly empty${metadataNote}`),
             kpi(fillers.length, "Filler Models"),
             kpi(completeness, "Configuration completeness", `${nUnconfigured} not configured`),
             kpi(nData, "Data files")

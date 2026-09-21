@@ -81,6 +81,29 @@ test("overview reports configuration completeness separately from fill", () => {
   assert.ok(text.includes(String(manifest.total_cells)), "total cells not shown");
 });
 
+test("overview notes partial envelope metadata only", () => {
+  const manifest = sampleManifest();
+  const entries = manifest.envelope_entries;
+  const withMetadata = entries.filter((entry) => entry.metadata && Object.keys(entry.metadata).length).length;
+  assert.ok(withMetadata > 0 && withMetadata < entries.length, "fixture must have partial metadata");
+  assert.ok(
+    openTab(boot(manifest).document, "Overview").textContent.includes(`${withMetadata} with metadata`),
+    "partial metadata not noted",
+  );
+
+  entries.forEach((entry) => { delete entry.metadata; });
+  assert.ok(
+    !openTab(boot(manifest).document, "Overview").textContent.includes("with metadata"),
+    "no-metadata report should not mention metadata",
+  );
+
+  entries.forEach((entry) => { entry.metadata = { zone: "A" }; });
+  assert.ok(
+    !openTab(boot(manifest).document, "Overview").textContent.includes("with metadata"),
+    "complete metadata needs no note",
+  );
+});
+
 test("explorer groups envelopes by a discovered metadata key", () => {
   const manifest = sampleManifest();
   const { document } = boot(manifest);

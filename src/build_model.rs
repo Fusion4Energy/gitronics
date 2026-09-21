@@ -55,6 +55,7 @@ fn execute_build(
 
     // Load the descriptive envelope-structure metadata (best-effort).
     project_manager.load_envelope_metadata();
+    project_manager.warn_about_unmatched_envelope_metadata(&marked_envelopes(&envelope_structure));
 
     // Universe id of every filler (read from its first cell's `u=`).
     let universe_ids: HashMap<FillerName, UniverseId> = fillers
@@ -239,6 +240,18 @@ fn order_fillers_by_cell_id(
         .into_iter()
         .map(|(_, name, model)| (name, model))
         .collect())
+}
+
+/// Names of the envelopes marked with `$ @env:name` in the envelope structure.
+fn marked_envelopes(envelope_structure: &Model) -> HashSet<EnvelopeName> {
+    envelope_structure
+        .cells()
+        .filter_map(|cell| {
+            ENVELOPE_RE
+                .captures(cell.text())
+                .map(|captures| EnvelopeName::new(&captures[1]))
+        })
+        .collect()
 }
 
 fn add_fill_cards_to_envelopes(
