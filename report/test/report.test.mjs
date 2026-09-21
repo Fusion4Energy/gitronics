@@ -107,6 +107,19 @@ test("explorer groups envelopes by a discovered metadata key", () => {
   }
 });
 
+test("explorer shows the description whatever the case of its metadata key", () => {
+  const manifest = sampleManifest();
+  const entry = manifest.envelope_entries.find((e) => e.metadata?.description);
+  assert.ok(entry, "fixture has no envelope with a description");
+  entry.metadata = { Description: entry.metadata.description, ...entry.metadata };
+  delete entry.metadata.description;
+
+  const { document } = boot(manifest);
+  const panel = openTab(document, "Explorer");
+  const descs = [...panel.querySelectorAll(".desc")].map((n) => n.textContent);
+  assert.ok(descs.includes("Blanket A"), `capitalised Description not shown: ${descs}`);
+});
+
 test("explorer search filters the envelope list", () => {
   const { document, window } = boot(sampleManifest());
   const panel = openTab(document, "Explorer");

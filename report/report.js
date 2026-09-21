@@ -75,10 +75,17 @@
         return [runs[0][0], runs[runs.length - 1][1]];
     }
     // A "description"-like key, if the project uses one, for opportunistic display.
+    const DESC_KEYS = ["description", "desc", "title", "name", "label"];
+    const SHOWN_AS_DESC_KEYS = ["description", "desc", "title"];
+    function isKeyOf(list, key) { return list.indexOf(String(key).toLowerCase()) >= 0; }
     function descOf(entry) {
         const m = entry && entry.metadata; if (!m) return "";
-        const k = ["description", "desc", "title", "name", "label"].find((x) => { return m[x] != null; });
-        return k ? metaVal(m[k]) : "";
+        const keys = Object.keys(m);
+        for (const wanted of DESC_KEYS) {
+            const k = keys.find((x) => { return x.toLowerCase() === wanted && m[x] != null; });
+            if (k) return metaVal(m[k]);
+        }
+        return "";
     }
     // Pick sensible default grouping fields (prefer conventional names if present).
     function defaultFields(keys) {
@@ -697,7 +704,7 @@
         const d = descOf(e); if (d) s += `<br>${esc(d)}`;
         if (e.metadata) {
             Object.keys(e.metadata).slice(0, 5).forEach((k) => {
-                if (["description", "desc", "title"].indexOf(k) >= 0) return;
+                if (isKeyOf(SHOWN_AS_DESC_KEYS, k)) return;
                 s += `<br><span style='opacity:.7'>${esc(k)}:</span> ${esc(metaVal(e.metadata[k]))}`;
             });
         }
@@ -1862,7 +1869,7 @@
         body.appendChild(kv);
 
         // Arbitrary, project-defined metadata (rendered generically).
-        const mkeys = f.metadata ? Object.keys(f.metadata).filter((k) => { return ["description", "desc", "title"].indexOf(k) < 0; }) : [];
+        const mkeys = f.metadata ? Object.keys(f.metadata).filter((k) => { return !isKeyOf(SHOWN_AS_DESC_KEYS, k); }) : [];
         if (mkeys.length) {
             body.appendChild(el("div", { class: "subhead", text: "Metadata" }));
             const mkv = el("dl", { class: "kv" });
