@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2024"
 description = "Build MCNP neutronics models from modular components"
 license = "EUPL-1.2"
+# The published crate includes the viewer and vendored library it inlines; the
+# viewer's test harness and its dependencies are development-only.
+exclude = [
+    "report/test",
+    "report/node_modules",
+    "report/package.json",
+    "report/package-lock.json",
+]
 
 [[bin]]
 name = "gitronics"
@@ -14,11 +22,16 @@ name = "gitronics"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
-migjorn = { version = "0.2.2" }
+pyo3 = { version = "0.23", features = [
+    "extension-module",
+    "abi3-py39",
+    "generate-import-lib",
+] }
+migjorn = "0.3.11"
 walkdir = "2.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-saphyr = "0.0.26"
+serde_json = { version = "1.0", features = ["preserve_order"] }
 thiserror = "2.0.18"
 rayon = "1.12.0"
 log = "0.4.29"
@@ -30,6 +43,8 @@ indexmap = { version = "2.14.0", features = ["serde"] }
 git2 = "0.21.0"
 dunce = "1.0.5"
 path-clean = "1.0.1"
+sha2 = "0.10"
+pathdiff = "0.2"
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -1,17 +1,38 @@
-use crate::build_report::{BuildReport, EnvelopeEntry, FillerEntry};
+use crate::build_record::{BuildRecord, CheckKind};
+use crate::error::{GitronicsError, MergeConflict};
+use crate::fs_utils::{parent_or_cwd, write_output_gitignore};
 use crate::project_manager::ProjectManager;
+use crate::runtime::init_thread_pool;
 use crate::types::{EnvelopeName, FillerName, UniverseId};
-use crate::utils::GitronicsError;
 
 use git2::Repository;
 use log::{info, warn};
 use migjorn::Model;
 use regex::Regex;
 use std::collections::HashSet;
+#[cfg(test)]
 use std::fs;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::{collections::HashMap, path::Path, sync::LazyLock};
 
 pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), GitronicsError> {
+    init_thread_pool();
+    let mut record = BuildRecord::default();
+    let result = execute_build(config_path, output_path, &mut record);
+    record.finish(result, output_path)?;
+    info!(
+        "Build completed successfully in: {}",
+        output_path.join("assembled.mcnp").display()
+    );
+    Ok(())
+}
+
+fn execute_build(
+    config_path: &Path,
+    output_path: &Path,
+    record: &mut BuildRecord,
+) -> Result<(), GitronicsError> {
     info!(
         "Starting model build process for: {}",
         config_path.display()
@@ -21,7 +42,9 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
 
     // Load all files.
     let mut envelope_structure = project_manager.load_envelope_structure()?;
-    let unordered_fillers = project_manager.load_fillers()?;
+    // Loads every filler and caches its metadata in the same call, so
+    // `transformation` below is guaranteed to see it.
+    let unordered_fillers = project_manager.load_fillers_with_metadata()?;
     let transforms = project_manager.load_transforms()?;
     let materials = project_manager.load_materials()?;
     let tallies = project_manager.load_tallies()?;
@@ -30,8 +53,9 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     // Order fillers by their first cell id for deterministic output.
     let fillers = order_fillers_by_cell_id(unordered_fillers)?;
 
-    // Load metadata for each filler and cache it in the ProjectManager.
-    project_manager.load_metadata_for_fillers(fillers.iter().map(|(name, _)| name))?;
+    // Load the descriptive envelope-structure metadata (best-effort).
+    project_manager.load_envelope_metadata();
+    project_manager.warn_about_unmatched_envelope_metadata(&marked_envelopes(&envelope_structure));
 
     // Universe id of every filler (read from its first cell's `u=`).
     let universe_ids: HashMap<FillerName, UniverseId> = fillers
@@ -47,85 +71,151 @@ pub fn build_model(config_path: &Path, output_path: &Path) -> Result<(), Gitroni
     info!("Adapting envelope structure with FILL cards");
     add_fill_cards_to_envelopes(&project_manager, &universe_ids, &mut envelope_structure)?;
 
+    record.evidence = project_manager.take_evidence();
+
     // Collect build-report data before the models are consumed by composition.
-    let report = collect_build_report(
+    record.capture(
         config_path,
+        get_hash_of_project(project_dir(config_path)),
         &project_manager,
         &envelope_structure,
         &fillers,
         &universe_ids,
-    )?;
+    );
+    record.check(CheckKind::EnvelopeAssignments, Ok(()))?;
 
     // Compose: drop the ignored data blocks, then merge every filler's geometry
-    // into the envelope structure (collision-checked against the disjoint-range
-    // convention).
+    // and the configured data cards into the envelope structure
+    // (collision-checked against the disjoint-range convention).
     info!("Composing model");
-    envelope_structure.clear_data_cards();
-    let mut filler_models = fillers;
-    for (_, model) in filler_models.iter_mut() {
-        model.clear_data_cards();
-    }
-    let filler_refs: Vec<&Model> = filler_models.iter().map(|(_, model)| model).collect();
-    envelope_structure
-        .merge(&filler_refs)
-        .map_err(|conflicts| GitronicsError::MergeConflicts(format_conflicts(&conflicts)))?;
+    envelope_structure = envelope_structure.clear_data_cards();
 
-    // Append the configured data cards to the data block.
+    // `into_iter` so each filler's original model — which still carries the data
+    // cards `clear_data_cards` drops — is freed as soon as its cleared clone
+    // exists, instead of every original staying alive alongside every clone.
+    let mut to_merge: Vec<(String, Model)> = fillers
+        .into_iter()
+        .map(|(name, model)| (format!("filler `{name}`"), model.clear_data_cards()))
+        .collect();
+
     let data_text = [transforms, materials, tallies, source]
         .into_iter()
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    let mut assembled_source = envelope_structure.to_source();
-    if !data_text.is_empty() {
-        if !assembled_source.ends_with('\n') {
-            assembled_source.push('\n');
-        }
-        assembled_source.push_str(&data_text);
-        assembled_source.push('\n');
+    if let Some(data_model) = parse_configured_data(&data_text, record)? {
+        to_merge.push(("the configured data cards".to_string(), data_model));
     }
-    let assembled_model = Model::parse(assembled_source);
 
-    // Validate the assembled model.
+    let merge_result = merge_labeled(
+        &mut envelope_structure,
+        "the envelope structure".to_string(),
+        to_merge,
+    )
+    .map_err(GitronicsError::MergeConflicts);
+    record.check(CheckKind::Collisions, merge_result)?;
+
+    // Validate the assembled model. `merge` indexed every card it absorbed, so
+    // this reads the same ids a re-parse would have built.
     info!("Performing validation checks on the assembled model");
-    let problems = assembled_model.validate();
-    if !problems.is_empty() {
-        return Err(GitronicsError::ValidationError(problems.join("\n")));
-    }
+    let problems = envelope_structure.validate();
+    record.evidence.material_references(&envelope_structure);
+    record.check(
+        CheckKind::References,
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(GitronicsError::InvalidModel(problems))
+        },
+    )?;
+    record.verify_inputs()?;
 
     // Write the assembled model with the provenance banner.
     info!("Writing assembled model to file");
     let assembled_path = project_manager.output_path().join("assembled.mcnp");
-    let final_source = insert_banner(&assembled_model.to_source(), config_path);
-    fs::write(&assembled_path, final_source)?;
-    fs::write(output_path.join(".gitignore"), "*\n")?;
+    write_assembled(
+        &envelope_structure,
+        &assembled_path,
+        &banner_text(config_path),
+    )?;
+    write_output_gitignore(project_manager.output_path())?;
 
-    // Write the HTML build report.
-    info!("Writing HTML build report");
-    let report_path = project_manager.output_path().join("build_report.html");
-    fs::write(&report_path, report.generate_html())?;
-
-    info!(
-        "Build completed successfully in: {}",
-        assembled_path.display()
-    );
+    record.evidence.record_output(&assembled_path)?;
     Ok(())
 }
 
-static ENVELOPE_RE: LazyLock<Regex> =
+fn parse_configured_data(
+    text: &str,
+    record: &mut BuildRecord,
+) -> Result<Option<Model>, GitronicsError> {
+    if text.is_empty() {
+        record.skip(CheckKind::DataParsing);
+        return Ok(None);
+    }
+    let model = Model::parse(&format!("gitronics data cards\n\n\n{text}\n"));
+    let errors = model
+        .diagnostics()
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == migjorn::Severity::Error)
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect();
+    record.warnings.extend(
+        model
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == migjorn::Severity::Warning)
+            .map(|diagnostic| diagnostic.message.clone()),
+    );
+    record.parsing_check(errors)?;
+    Ok(Some(model))
+}
+
+/// `Model::merge`, but reporting which labeled component a collision came
+/// from instead of its position in `[self] ++ others`. `self_label` fills the
+/// slot `merge` always assigns `self` (index 0); each of `others`' labels
+/// follows in order, matching `merge`'s own documented convention — so a
+/// caller only has to build one `(label, model)` list instead of a model list
+/// and a name list kept in lockstep by hand.
+fn merge_labeled(
+    model: &mut Model,
+    self_label: String,
+    others: Vec<(String, Model)>,
+) -> Result<(), Vec<MergeConflict>> {
+    let mut labels = Vec::with_capacity(others.len() + 1);
+    labels.push(self_label);
+    let mut models = Vec::with_capacity(others.len());
+    for (label, other) in others {
+        labels.push(label);
+        models.push(other);
+    }
+
+    model.merge(models).map_err(|collisions| {
+        collisions
+            .into_iter()
+            .map(|c| MergeConflict {
+                kind: c.kind,
+                id: c.id,
+                models: c.models.iter().map(|&i| labels[i].clone()).collect(),
+            })
+            .collect()
+    })
+}
+
+pub(crate) static ENVELOPE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\s*@env:\s*([[:alnum:]_.-]+)\s*").unwrap());
 
 /// The directory that contains the configuration file — the anchor for git
 /// repository discovery (the project, not the process's working directory).
 fn project_dir(config_path: &Path) -> &Path {
-    config_path.parent().unwrap_or(Path::new("."))
+    parent_or_cwd(config_path)
 }
 
 /// The universe id declared by a filler's first cell (`u=`), if any.
 fn filler_universe(model: &Model) -> Option<UniverseId> {
-    let first = model.cells().next()?;
     model
-        .cell_universe(first.card_index)
+        .cells()
+        .next()?
+        .universe()
         .map(|u| UniverseId::new(u as u32))
 }
 
@@ -140,7 +230,7 @@ fn order_fillers_by_cell_id(
             let cell_id = model
                 .cells()
                 .next()
-                .map(|c| c.id)
+                .and_then(|c| c.id())
                 .ok_or_else(|| GitronicsError::NoCellID(name.clone()))?;
             Ok((cell_id, name, model))
         })
@@ -152,6 +242,18 @@ fn order_fillers_by_cell_id(
         .collect())
 }
 
+/// Names of the envelopes marked with `$ @env:name` in the envelope structure.
+fn marked_envelopes(envelope_structure: &Model) -> HashSet<EnvelopeName> {
+    envelope_structure
+        .cells()
+        .filter_map(|cell| {
+            ENVELOPE_RE
+                .captures(cell.text())
+                .map(|captures| EnvelopeName::new(&captures[1]))
+        })
+        .collect()
+}
+
 fn add_fill_cards_to_envelopes(
     project_manager: &ProjectManager,
     universe_ids: &HashMap<FillerName, UniverseId>,
@@ -160,20 +262,16 @@ fn add_fill_cards_to_envelopes(
     let mut missing_envelopes_in_file: HashSet<EnvelopeName> =
         project_manager.envelopes_in_config().cloned().collect();
 
-    // Collect cell card indices up front: FILL insertion is a token splice that
-    // leaves indices stable, so we can read then mutate by the same index.
-    let cell_indices: Vec<usize> = envelope_structure.cells().map(|c| c.card_index).collect();
-
-    for card_index in cell_indices {
-        let original_text = envelope_structure.card_source(card_index);
-        let Some(caps) = ENVELOPE_RE.captures(&original_text) else {
-            continue;
+    envelope_structure.try_for_each_cell_mut(|cell| -> Result<(), GitronicsError> {
+        let original_text = cell.view().text();
+        let Some(caps) = ENVELOPE_RE.captures(original_text) else {
+            return Ok(());
         };
         let envelope_name =
             EnvelopeName::new(caps.get(1).map(|m| m.as_str()).ok_or_else(|| {
                 GitronicsError::FailedToExtractEnvelopeName(
                     ENVELOPE_RE.to_string(),
-                    original_text.clone(),
+                    original_text.to_string(),
                 )
             })?);
 
@@ -183,7 +281,7 @@ fn add_fill_cards_to_envelopes(
                  It is better to explicitly set it as `{envelope_name}: null` if you want the \
                  envelope to not be filled with any model."
             );
-            continue;
+            return Ok(());
         };
 
         // We found the envelope in the file.
@@ -191,7 +289,7 @@ fn add_fill_cards_to_envelopes(
 
         // Envelope explicitly set to null in config: leave it unfilled.
         let Some(filler_name) = env_config.as_ref() else {
-            continue;
+            return Ok(());
         };
 
         let universe_id = universe_ids
@@ -207,155 +305,104 @@ fn add_fill_cards_to_envelopes(
             format!("fill={universe_id} {transform}")
         };
 
-        envelope_structure
-            .add_cell_param(card_index, fill_card_text.trim())
+        let slot = cell.slot();
+        cell.model_mut()
+            .add_cell_param(slot, fill_card_text.trim())
             .map_err(|e| GitronicsError::InvalidFillCard(fill_card_text, e.to_string()))?;
-    }
+        Ok(())
+    })?;
 
     if !missing_envelopes_in_file.is_empty() {
-        warn!(
+        let mut missing_names: Vec<String> = missing_envelopes_in_file
+            .into_iter()
+            .map(|envelope| envelope.to_string())
+            .collect();
+        missing_names.sort();
+        return Err(GitronicsError::ValidationError(format!(
             "The following envelopes were defined in the configuration file but not found in the envelope structure file: {}. \
              Please check that the `$ @env:envelope_name` pattern is satisfied.",
-            missing_envelopes_in_file
-                .into_iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+            missing_names.join(", ")
+        )));
     }
     Ok(())
 }
 
-fn collect_build_report(
-    config_path: &Path,
-    project_manager: &ProjectManager,
-    envelope_structure: &Model,
-    fillers: &[(FillerName, Model)],
-    universe_ids: &HashMap<FillerName, UniverseId>,
-) -> Result<BuildReport, GitronicsError> {
-    let total_cells = envelope_structure.cells().count()
-        + fillers
-            .iter()
-            .map(|(_, m)| m.cells().count())
-            .sum::<usize>();
-    let total_surfaces = envelope_structure.surfaces().count()
-        + fillers
-            .iter()
-            .map(|(_, m)| m.surfaces().count())
-            .sum::<usize>();
-
-    let envelope_entries: Vec<EnvelopeEntry> = project_manager
-        .envelopes_in_config()
-        .map(|env_name| {
-            let filler_name: Option<FillerName> = project_manager
-                .filler_by_envelope(env_name)
-                .and_then(|opt| opt.clone());
-
-            let universe_id = filler_name
-                .as_ref()
-                .and_then(|f| universe_ids.get(f))
-                .copied();
-
-            let transform = filler_name.as_ref().and_then(|f| {
-                project_manager
-                    .transformation(f, env_name)
-                    .ok()
-                    .flatten()
-                    .map(str::to_string)
-            });
-
-            EnvelopeEntry {
-                envelope_name: env_name.clone(),
-                filler_name,
-                universe_id,
-                transform,
-            }
-        })
-        .collect();
-
-    let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
-    for entry in &envelope_entries {
-        if let Some(filler_name) = &entry.filler_name {
-            *filler_envelope_counts
-                .entry(filler_name.clone())
-                .or_insert(0) += 1;
-        }
-    }
-
-    let filler_entries: Vec<FillerEntry> = fillers
-        .iter()
-        .filter_map(|(name, model)| {
-            let universe_id = *universe_ids.get(name)?;
-            let envelope_count = *filler_envelope_counts.get(name).unwrap_or(&0);
-            Some(FillerEntry {
-                universe_id,
-                envelope_count,
-                cell_count: model.cells().count(),
-                surface_count: model.surfaces().count(),
-                name: name.clone(),
-            })
-        })
-        .collect();
-
-    Ok(BuildReport {
-        config_path: config_path.display().to_string(),
-        gitronics_version: env!("CARGO_PKG_VERSION"),
-        commit_hash: get_hash_of_project(project_dir(config_path)),
-        date_time: chrono::Utc::now()
-            .format("%Y-%m-%d %H:%M:%S UTC")
-            .to_string(),
-        total_cells,
-        total_surfaces,
-        envelope_entries,
-        filler_entries,
-        materials: project_manager
-            .materials_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        tallies: project_manager
-            .tallies_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        transforms: project_manager
-            .transforms_names()
-            .iter()
-            .map(|n| n.to_string())
-            .collect(),
-        source: project_manager.source_name().map(|n| n.to_string()),
-    })
-}
-
-/// Render merge conflicts as a human-readable, newline-separated list.
-fn format_conflicts(conflicts: &[migjorn::MergeConflict]) -> String {
-    conflicts
-        .iter()
-        .map(|c| c.to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Insert the provenance banner as comment lines just after the model's title.
-fn insert_banner(source: &str, config_path: &Path) -> String {
+/// The provenance banner: how, when and from what this model was assembled.
+/// No trailing newline.
+fn banner_text(config_path: &Path) -> String {
     let configuration = config_path.display().to_string();
     let date_time = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let gitronics_version = env!("CARGO_PKG_VERSION");
     let commit_hash = get_hash_of_project(project_dir(config_path));
 
-    let banner = format!(
+    format!(
         "C ============================================================\n\
          C  Built by gitronics v{gitronics_version}\n\
          C  Configuration : {configuration}\n\
          C  Git commit    : {commit_hash}\n\
          C  Date / time   : {date_time}\n\
          C ============================================================"
-    );
+    )
+}
 
+/// Insert the provenance banner as comment lines just after the model's title.
+///
+/// The build itself streams the model to disk through [`write_assembled`]; this
+/// is the same transformation expressed over a whole string, kept so a test can
+/// hold the two against each other.
+#[cfg(test)]
+fn insert_banner(source: &str, banner: &str) -> String {
     match source.split_once('\n') {
         Some((title, rest)) => format!("{title}\n{banner}\n{rest}"),
         None => format!("{source}\n{banner}\n"),
     }
+}
+
+/// Write `model`, with `banner` inserted after its title line, to `path`.
+///
+/// Streams the model card by card into a buffered writer rather than building
+/// the whole source in memory. `Cst::to_source` is a plain concatenation of each
+/// card's text, so the bytes written here are exactly
+/// `insert_banner(&model.to_source(), banner)` — for a 376 MB model that is
+/// three whole copies of the output not allocated.
+fn write_assembled(model: &Model, path: &Path, banner: &str) -> Result<(), GitronicsError> {
+    let file = File::create(path).map_err(|source| GitronicsError::io_path(path, source))?;
+    let mut writer = BufWriter::with_capacity(1 << 20, file);
+
+    // Buffer only as far as the first newline, so the split point is the one
+    // `insert_banner` would choose on the fully concatenated source.
+    let mut cards = model.cst().cards();
+    let mut head = String::new();
+    let mut newline_at = None;
+    for card in cards.by_ref() {
+        head.push_str(card.text());
+        if let Some(i) = head.find('\n') {
+            newline_at = Some(i);
+            break;
+        }
+    }
+
+    match newline_at {
+        Some(i) => {
+            writer.write_all(&head.as_bytes()[..=i])?; // title line, including '\n'
+            writer.write_all(banner.as_bytes())?;
+            writer.write_all(b"\n")?;
+            writer.write_all(&head.as_bytes()[i + 1..])?; // rest of that card
+        }
+        // The entire source has no newline: mirrors `insert_banner`'s `None` arm.
+        None => {
+            writer.write_all(head.as_bytes())?;
+            writer.write_all(b"\n")?;
+            writer.write_all(banner.as_bytes())?;
+            writer.write_all(b"\n")?;
+        }
+    }
+
+    for card in cards {
+        writer.write_all(card.text().as_bytes())?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 /// Describe the git state of the repository that contains `start_dir` (the
@@ -394,4 +441,123 @@ fn get_hash_of_project(start_dir: &Path) -> String {
                 })
         })
         .unwrap_or_else(|| "GIT repository not found".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    // ── Banner ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn banner_lands_after_the_title_line() {
+        let out = insert_banner("title\ncell cards\n", "C banner");
+        assert_eq!(out, "title\nC banner\ncell cards\n");
+    }
+
+    #[test]
+    fn banner_appends_to_a_source_with_no_newline() {
+        assert_eq!(insert_banner("title", "C banner"), "title\nC banner\n");
+    }
+
+    #[test]
+    fn banner_text_records_version_config_and_time() {
+        let banner = banner_text(Path::new("configurations/baseline.yaml"));
+        let lines: Vec<&str> = banner.lines().collect();
+        assert_eq!(lines.len(), 6, "banner is two rules around four fields");
+        assert!(lines[1].starts_with("C  Built by gitronics v"));
+        assert!(lines[2].contains("configurations/baseline.yaml"));
+        assert!(lines[3].starts_with("C  Git commit    : "));
+        assert!(lines[4].starts_with("C  Date / time   : "));
+        assert_eq!(lines[0], lines[5], "opening and closing rules match");
+    }
+
+    /// `write_assembled` streams what `insert_banner` would have built in
+    /// memory. The two must not drift apart.
+    #[test]
+    fn streamed_output_equals_insert_banner() {
+        let dir = tempdir().unwrap();
+        let banner = "C banner line 1\nC banner line 2";
+
+        for source in [
+            "title\n1 0 -1 imp:n=1\n\n1 SO 5\n\nM1 1001 1\n",
+            "just a title with no newline",
+            "title\n",
+        ] {
+            let model = Model::parse(source);
+            let path = dir.path().join("out.mcnp");
+            write_assembled(&model, &path, banner).unwrap();
+
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                insert_banner(&model.to_source(), banner),
+                "streamed and in-memory banner insertion differ for {source:?}"
+            );
+        }
+    }
+
+    // ── Filler ordering ───────────────────────────────────────────────────────
+
+    #[test]
+    fn fillers_are_ordered_by_first_cell_id() {
+        let mk = |id: i64| {
+            Model::parse(&format!(
+                "t\n{id} 0 -1 imp:n=1 u=1\n\n1 SO 5\n\nM1 1001 1\n"
+            ))
+        };
+        let fillers = vec![
+            (FillerName::new("c"), mk(300)),
+            (FillerName::new("a"), mk(100)),
+            (FillerName::new("b"), mk(200)),
+        ];
+
+        let ordered = order_fillers_by_cell_id(fillers).unwrap();
+        let names: Vec<String> = ordered.iter().map(|(n, _)| n.to_string()).collect();
+        assert_eq!(names, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_filler_without_cells_is_rejected() {
+        let fillers = vec![(FillerName::new("empty"), Model::parse("just a title\n"))];
+        // `Model` is not `Debug`, so match rather than `unwrap_err`.
+        let Err(err) = order_fillers_by_cell_id(fillers) else {
+            panic!("a filler with no cells must be rejected");
+        };
+        assert!(
+            err.to_string().contains("No cell ID found"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // ── Git provenance ────────────────────────────────────────────────────────
+
+    #[test]
+    fn git_hash_falls_back_when_there_is_no_repository() {
+        // A directory outside any repository — `tempdir` is not under this one.
+        let dir = tempdir().unwrap();
+        assert_eq!(get_hash_of_project(dir.path()), "GIT repository not found");
+    }
+
+    #[test]
+    fn git_hash_describes_a_repository_without_tags() {
+        let dir = tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        fs::write(dir.path().join("f.txt"), "x").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("f.txt")).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("t", "t@example.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+
+        let hash = get_hash_of_project(dir.path());
+        assert_ne!(hash, "GIT repository not found");
+        // An untagged repository falls back to the short SHA.
+        assert!(
+            hash.len() >= 7 && hash.chars().next().unwrap().is_ascii_hexdigit(),
+            "expected a short SHA, got {hash:?}"
+        );
+    }
 }

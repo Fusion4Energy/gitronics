@@ -1,39 +1,105 @@
-//! HTML build-report generator.
+//! Build-report generator.
 //!
-//! Produces a single self-contained `build_report.html` file that summarises
-//! what was assembled: envelope/filler assignments, filler model stats, and
-//! every data-card file that was included.
+//! Produces two artefacts describing the assembled model:
 //!
-//! The report uses an internal stylesheet and vanilla JS for the per-section
-//! search bars. All sections are collapsible via native `<details>`.
+//! * `build_report.json` — a structured, machine-readable manifest (the single
+//!   source of truth) suitable for CI, regression diffing and external tooling.
+//! * `build_report.html` — a single, self-contained, offline interactive viewer.
+//!   The manifest is embedded verbatim into the HTML and rendered client-side by
+//!   the bundled [`report.js`]/[`report.css`] assets. No network access, no build
+//!   step, deterministic output.
 
-use std::fmt::Write;
+use serde::Serialize;
 
+use crate::build_record::{BuildRecord, runs_from_ids};
+use crate::project_manager::{Metadata, ProjectManager};
 use crate::types::{EnvelopeName, FillerName, UniverseId};
+use indexmap::IndexMap;
+use migjorn::Model;
+use std::collections::{BTreeSet, HashMap};
+use std::path::Path;
+
+use crate::provenance::Evidence;
+
+#[derive(Debug, Serialize)]
+pub struct Check {
+    pub name: &'static str,
+    pub status: &'static str,
+    pub details: Vec<String>,
+}
+
+/// Schema version of the emitted manifest. Bump on breaking changes so the
+/// viewer (and downstream tooling) can adapt.
+pub const SCHEMA_VERSION: u32 = 2;
 
 // ─── Public data types ────────────────────────────────────────────────────────
 
-/// One row in the Envelope Assignments table.
+/// One envelope in the assembled model.
+#[derive(Debug, Serialize)]
 pub struct EnvelopeEntry {
     pub envelope_name: EnvelopeName,
+    pub status: &'static str,
+    pub cell_ids: Vec<i64>,
     /// `None` means the envelope was explicitly set to `null` in the config.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub filler_name: Option<FillerName>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub universe_id: Option<UniverseId>,
-    /// Raw transform text (e.g. `TR1`, `*TR2 …`) or empty.
+    /// Raw transform text (e.g. `(40)`, `*(…)`) or `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub transform: Option<String>,
+    /// Arbitrary, project-defined metadata (any keys the user chose to record).
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub metadata: Metadata,
 }
 
-/// One row in the Filler Models table.
+/// One filler model in the assembled model.
+#[derive(Debug, Serialize)]
 pub struct FillerEntry {
     pub name: FillerName,
     pub universe_id: UniverseId,
     pub envelope_count: usize,
     pub cell_count: usize,
     pub surface_count: usize,
+    /// The exact cell ids used, run-length encoded as inclusive `[start, end]`
+    /// runs (sorted). Compact yet lossless — the viewer expands these to show
+    /// every individual id position.
+    pub cell_id_runs: Vec<[i64; 2]>,
+    /// The exact surface ids used, run-length encoded as inclusive `[start, end]`.
+    pub surface_id_runs: Vec<[i64; 2]>,
+    /// Distinct, sorted material numbers referenced by this filler's cells.
+    pub materials: Vec<i64>,
+    pub universe_id_runs: Vec<[i64; 2]>,
+    /// Names of the envelopes this filler fills.
+    pub envelopes: Vec<EnvelopeName>,
+    /// Arbitrary, project-defined metadata (any keys the user chose to record).
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub metadata: Metadata,
 }
 
-/// All data needed to render a build report.
+/// Aggregate statistics for the envelope structure model itself (as opposed to
+/// the per-filler entries in [`FillerEntry`]).
+#[derive(Debug, Serialize)]
+pub struct EnvelopeStructureStats {
+    pub cell_count: usize,
+    pub surface_count: usize,
+    /// The exact cell ids used by the envelope structure file, run-length
+    /// encoded as inclusive `[start, end]` runs (sorted).
+    pub cell_id_runs: Vec<[i64; 2]>,
+    /// The exact surface ids used by the envelope structure file, run-length
+    /// encoded as inclusive `[start, end]`.
+    pub surface_id_runs: Vec<[i64; 2]>,
+    pub universe_id_runs: Vec<[i64; 2]>,
+}
+
+/// The complete build-report manifest.
+#[derive(Debug, Serialize)]
 pub struct BuildReport {
+    pub schema_version: u32,
+    pub build_status: &'static str,
+    pub checks: Vec<Check>,
+    pub warnings: Vec<String>,
+    pub evidence: Evidence,
     pub config_path: String,
     pub gitronics_version: &'static str,
     pub commit_hash: String,
@@ -42,477 +108,397 @@ pub struct BuildReport {
     pub total_cells: usize,
     /// Total surfaces in the assembled model.
     pub total_surfaces: usize,
+    pub envelope_structure: EnvelopeStructureStats,
     pub envelope_entries: Vec<EnvelopeEntry>,
     pub filler_entries: Vec<FillerEntry>,
     pub materials: Vec<String>,
     pub tallies: Vec<String>,
     pub transforms: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 
-// ─── HTML generation ──────────────────────────────────────────────────────────
+// ─── Construction ─────────────────────────────────────────────────────────────
 
-impl BuildReport {
-    /// Renders the complete HTML document as a `String`.
-    pub fn generate_html(&self) -> String {
-        let mut out = String::with_capacity(512 * 1024);
+/// Per-model statistics derived directly from a parsed [`Model`] (reliable,
+/// independent of any metadata sidecar).
+struct ModelStats {
+    cell_count: usize,
+    surface_count: usize,
+    /// Exact cell ids used, run-length encoded as inclusive `[start, end]` runs.
+    cell_id_runs: Vec<[i64; 2]>,
+    /// Exact surface ids used, run-length encoded as inclusive `[start, end]`.
+    surface_id_runs: Vec<[i64; 2]>,
+    materials: Vec<i64>,
+    universe_id_runs: Vec<[i64; 2]>,
+}
 
-        let n_envelopes = self.envelope_entries.len();
-        let n_filled = self
-            .envelope_entries
-            .iter()
-            .filter(|e| e.filler_name.is_some())
-            .count();
-        let n_null = n_envelopes - n_filled;
-        let n_fillers = self.filler_entries.len();
-        let n_data_files = self.materials.len()
-            + self.tallies.len()
-            + self.transforms.len()
-            + usize::from(self.source.is_some());
+pub(crate) struct BuildSnapshot {
+    config_path: String,
+    commit_hash: String,
+    date_time: String,
+    total_cells: usize,
+    total_surfaces: usize,
+    envelope_structure: EnvelopeStructureStats,
+    envelope_entries: Vec<EnvelopeEntry>,
+    filler_entries: Vec<FillerEntry>,
+    materials: Vec<String>,
+    tallies: Vec<String>,
+    transforms: Vec<String>,
+    source: Option<String>,
+    warnings: Vec<String>,
+}
 
-        self.write_head(&mut out);
-        self.write_banner(&mut out);
-        self.write_stat_cards(
-            &mut out,
-            n_envelopes,
-            n_filled,
-            n_null,
-            n_fillers,
-            n_data_files,
-        );
-        self.write_main(&mut out);
-        out.push_str("</body>\n</html>\n");
-        out
+/// Computes cell/surface counts, exact id runs and the distinct material set of
+/// a model in a single pass over its cells and surfaces.
+fn model_stats(model: &Model) -> ModelStats {
+    let mut cell_ids = Vec::new();
+    let mut universes = Vec::new();
+    let mut materials: BTreeSet<i64> = BTreeSet::new();
+    for cell in model.cells() {
+        cell_ids.push(cell.id().unwrap_or_default());
+        if let Some(universe) = cell
+            .universe()
+            .or_else(|| cell.like().is_none().then_some(0))
+        {
+            universes.extend(universe.checked_abs());
+        }
+        if let Some(m) = cell.material()
+            && m != 0
+        {
+            materials.insert(m);
+        }
     }
 
-    // ── Head ──────────────────────────────────────────────────────────────────
+    let surface_ids: Vec<i64> = model
+        .surfaces()
+        .map(|s| s.id().unwrap_or_default())
+        .collect();
 
-    fn write_head(&self, out: &mut String) {
-        out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
-        out.push_str("  <meta charset=\"UTF-8\">\n");
-        out.push_str(
-            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n",
-        );
-        writeln!(
-            out,
-            "  <title>Build Report — {}</title>",
-            h(&self.config_path)
-        )
-        .unwrap();
-        out.push_str("  <style>\n");
-        out.push_str(include_str!("report.css"));
-        out.push_str("  </style>\n");
-        out.push_str("</head>\n<body class=\"bg-slate-50 min-h-screen font-sans text-slate-900 antialiased\">\n\n");
+    ModelStats {
+        cell_count: cell_ids.len(),
+        surface_count: surface_ids.len(),
+        cell_id_runs: runs_from_ids(cell_ids),
+        surface_id_runs: runs_from_ids(surface_ids),
+        materials: materials.into_iter().collect(),
+        universe_id_runs: runs_from_ids(universes),
     }
+}
 
-    // ── Banner ────────────────────────────────────────────────────────────────
+impl BuildSnapshot {
+    /// Captures component statistics before composition consumes the models.
+    /// Repository discovery remains the caller's responsibility.
+    pub fn from_build(
+        config_path: &Path,
+        commit_hash: String,
+        project_manager: &ProjectManager,
+        envelope_structure: &Model,
+        fillers: &[(FillerName, Model)],
+        universe_ids: &HashMap<FillerName, UniverseId>,
+    ) -> Self {
+        let envelope_stats = model_stats(envelope_structure);
+        let total_cells = envelope_stats.cell_count
+            + fillers
+                .iter()
+                .map(|(_, m)| m.cells().count())
+                .sum::<usize>();
+        let total_surfaces = envelope_stats.surface_count
+            + fillers
+                .iter()
+                .map(|(_, m)| m.surfaces().count())
+                .sum::<usize>();
 
-    fn write_banner(&self, out: &mut String) {
-        out.push_str(
-            "<header class=\"bg-slate-900 text-white\">\n\
-             <div class=\"max-w-7xl mx-auto px-6 py-8\">\n\
-             <div class=\"flex flex-wrap items-center gap-3 mb-5\">\n",
-        );
-        out.push_str(
-            "  <span class=\"text-xl font-bold tracking-tight text-white\">gitronics</span>\n",
-        );
-        writeln!(
-            out,
-            "  <span class=\"font-mono text-slate-400 text-sm\">v{}</span>",
-            h(self.gitronics_version)
-        )
-        .unwrap();
-        out.push_str(
-            "  <span class=\"ml-1 px-3 py-1 bg-blue-600 text-white text-xs rounded-full font-medium\">Build Report</span>\n",
-        );
-        out.push_str("</div>\n");
-
-        out.push_str(
-            "<dl class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-16 gap-y-1 text-sm font-mono\">\n",
-        );
-        for (label, value) in [
-            ("config", &self.config_path),
-            ("commit", &self.commit_hash),
-            ("date", &self.date_time),
-        ] {
-            writeln!(
-                out,
-                "<div class=\"flex gap-2\"><dt class=\"text-slate-500\">{label}</dt><dd class=\"text-slate-300 truncate\">{value}</dd></div>",
-                label = h(label),
-                value = h(value),
-            )
-            .unwrap();
+        let mut marked_cells: IndexMap<EnvelopeName, Vec<i64>> = IndexMap::new();
+        for cell in envelope_structure.cells() {
+            let text = cell.text();
+            if let Some(captures) = crate::build_model::ENVELOPE_RE.captures(text) {
+                marked_cells
+                    .entry(EnvelopeName::new(&captures[1]))
+                    .or_default()
+                    .extend(cell.id());
+            }
         }
-        writeln!(
-            out,
-            "<div class=\"flex gap-2\"><dt class=\"text-slate-500\">version</dt><dd class=\"text-slate-300\">v{}</dd></div>",
-            h(self.gitronics_version)
-        )
-        .unwrap();
-        out.push_str("</dl>\n");
-        out.push_str("</div>\n</header>\n\n");
-    }
+        let envelope_entries: Vec<EnvelopeEntry> = marked_cells
+            .into_iter()
+            .map(|(env_name, cell_ids)| {
+                let assignment = project_manager.filler_by_envelope(&env_name);
+                let filler_name: Option<FillerName> = project_manager
+                    .filler_by_envelope(&env_name)
+                    .and_then(|opt| opt.clone());
 
-    // ── Stat cards ────────────────────────────────────────────────────────────
+                let universe_id = filler_name
+                    .as_ref()
+                    .and_then(|f| universe_ids.get(f))
+                    .copied();
 
-    fn write_stat_cards(
-        &self,
-        out: &mut String,
-        n_envelopes: usize,
-        n_filled: usize,
-        n_null: usize,
-        n_fillers: usize,
-        n_data_files: usize,
-    ) {
-        out.push_str(
-            "<div class=\"max-w-7xl mx-auto px-6 py-6\">\n\
-             <div class=\"grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4\">\n",
-        );
+                let transform = filler_name.as_ref().and_then(|f| {
+                    project_manager
+                        .transformation(f, &env_name)
+                        .ok()
+                        .flatten()
+                        .map(str::to_string)
+                });
 
-        stat_card(out, "Cells", &self.total_cells.to_string(), None);
-        stat_card(out, "Surfaces", &self.total_surfaces.to_string(), None);
-        stat_card(
-            out,
-            "Envelopes",
-            &n_envelopes.to_string(),
-            Some(&format!("{n_filled} filled · {n_null} null")),
-        );
-        stat_card(out, "Filler Models", &n_fillers.to_string(), None);
-        stat_card(out, "Data Files", &n_data_files.to_string(), None);
+                let meta = project_manager
+                    .envelope_metadata(&env_name)
+                    .cloned()
+                    .unwrap_or_default();
+                EnvelopeEntry {
+                    envelope_name: env_name.clone(),
+                    status: match assignment {
+                        Some(Some(_)) => "filled",
+                        Some(None) => "empty",
+                        None => "unconfigured",
+                    },
+                    cell_ids,
+                    filler_name,
+                    universe_id,
+                    transform,
+                    metadata: meta,
+                }
+            })
+            .collect();
 
-        out.push_str("</div>\n</div>\n\n");
-    }
-
-    // ── Main content ──────────────────────────────────────────────────────────
-
-    fn write_main(&self, out: &mut String) {
-        out.push_str("<main class=\"max-w-7xl mx-auto px-6 pb-12 space-y-4\">\n\n");
-
-        self.write_envelope_section(out);
-        self.write_fillers_section(out);
-
-        if !self.materials.is_empty() {
-            write_list_section(out, "Materials", "materials", &self.materials);
-        }
-        if !self.tallies.is_empty() {
-            write_list_section(out, "Tallies", "tallies", &self.tallies);
-        }
-        if !self.transforms.is_empty() {
-            write_list_section(out, "Transforms", "transforms", &self.transforms);
-        }
-        if let Some(ref src) = self.source {
-            write_source_section(out, src);
-        }
-
-        out.push_str("</main>\n\n");
-        write_footer_and_scripts(out);
-    }
-
-    // ── Envelope section ──────────────────────────────────────────────────────
-
-    fn write_envelope_section(&self, out: &mut String) {
-        let n = self.envelope_entries.len();
-        let n_filled = self
-            .envelope_entries
-            .iter()
-            .filter(|e| e.filler_name.is_some())
-            .count();
-        let n_null = n - n_filled;
-
-        // Section open
-        out.push_str(
-            "<details open class=\"bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden\">\n",
-        );
-
-        // Summary row
-        out.push_str(
-            "<summary class=\"flex flex-wrap items-center gap-2 px-6 py-4 hover:bg-slate-50 select-none\">\n\
-             <span class=\"chevron text-slate-400\">&#9654;</span>\n\
-             <span class=\"font-semibold text-slate-900\">Envelope Assignments</span>\n",
-        );
-        writeln!(
-            out,
-            "<span class=\"px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full font-medium\">{n}</span>"
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "<span class=\"px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full font-medium\">{n_filled} filled</span>"
-        )
-        .unwrap();
-        if n_null > 0 {
-            writeln!(
-                out,
-                "<span class=\"px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full font-medium\">{n_null} null</span>"
-            )
-            .unwrap();
-        }
-        out.push_str("</summary>\n");
-
-        // Search bar
-        out.push_str(
-            "<div class=\"border-t border-slate-100 px-4 py-3 bg-slate-50\">\n\
-             <input type=\"text\"\n\
-             oninput=\"filterRows(this,'envelopes-tbody')\"\n\
-             placeholder=\"Filter by envelope, filler, universe ID or transform…\"\n\
-             class=\"w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white \
-             focus:outline-none focus:ring-2 focus:ring-blue-500\">\n\
-             </div>\n",
-        );
-
-        // Table
-        out.push_str(
-            "<div class=\"overflow-x-auto\">\n\
-             <table class=\"w-full text-sm\">\n\
-             <thead>\n\
-             <tr class=\"bg-slate-50 border-y border-slate-200\">\n\
-             <th class=\"text-left px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide w-1/4\">Envelope</th>\n\
-             <th class=\"text-left px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide w-1/4\">Filler</th>\n\
-             <th class=\"text-left px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide w-17\">Universe ID</th>\n\
-             <th class=\"text-left px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide\">Transform</th>\n\
-             </tr>\n\
-             </thead>\n\
-             <tbody id=\"envelopes-tbody\" class=\"divide-y divide-slate-100\">\n",
-        );
-
-        for entry in &self.envelope_entries {
-            let env = h(&entry.envelope_name.to_string());
-            let filler_str = entry
-                .filler_name
-                .as_ref()
-                .map(|f| f.to_string())
-                .unwrap_or_default();
-            let filler_esc = h(&filler_str);
-            let uid_str = entry.universe_id.map(|u| u.to_string()).unwrap_or_default();
-            let transform_str = entry.transform.as_deref().unwrap_or("").to_string();
-            let transform_esc = h(&transform_str);
-
-            let search_raw = format!("{env} {filler_esc} {uid_str} {transform_esc}").to_lowercase();
-            let search_esc = h(&search_raw);
-
-            if entry.filler_name.is_some() {
-                let transform_disp = if transform_str.is_empty() {
-                    "<span class=\"text-slate-300\">—</span>".to_string()
-                } else {
-                    format!(
-                        "<code class=\"text-xs bg-slate-100 px-1 py-0.5 rounded\">{transform_esc}</code>"
-                    )
-                };
-                write!(
-                    out,
-                    "<tr data-search=\"{search_esc}\" class=\"hover:bg-emerald-50/40\">\n\
-                     <td class=\"px-4 py-2.5 font-mono text-slate-700\">{env}</td>\n\
-                     <td class=\"px-4 py-2.5 font-mono text-emerald-700 font-medium\">{filler_esc}</td>\n\
-                     <td class=\"px-4 py-2.5 font-mono text-slate-500 text-xs\">{uid_str}</td>\n\
-                     <td class=\"px-4 py-2.5\">{transform_disp}</td>\n\
-                     </tr>\n"
-                )
-                .unwrap();
-            } else {
-                write!(
-                    out,
-                    "<tr data-search=\"{search_esc}\" class=\"hover:bg-slate-50\">\n\
-                     <td class=\"px-4 py-2.5 font-mono text-slate-400\">{env}</td>\n\
-                     <td class=\"px-4 py-2.5 text-xs text-slate-400 italic\">null</td>\n\
-                     <td class=\"px-4 py-2.5 text-slate-300\">—</td>\n\
-                     <td class=\"px-4 py-2.5 text-slate-300\">—</td>\n\
-                     </tr>\n"
-                )
-                .unwrap();
+        let mut filler_envelope_counts: HashMap<FillerName, usize> = HashMap::new();
+        let mut filler_envelopes: HashMap<FillerName, Vec<EnvelopeName>> = HashMap::new();
+        for entry in &envelope_entries {
+            if let Some(filler_name) = &entry.filler_name {
+                *filler_envelope_counts
+                    .entry(filler_name.clone())
+                    .or_insert(0) += 1;
+                filler_envelopes
+                    .entry(filler_name.clone())
+                    .or_default()
+                    .push(entry.envelope_name.clone());
             }
         }
 
-        out.push_str(
-            "</tbody>\n</table>\n</div>\n\
-             </details>\n\n",
-        );
-    }
+        let filler_entries: Vec<FillerEntry> = fillers
+            .iter()
+            .filter_map(|(name, model)| {
+                let universe_id = *universe_ids.get(name)?;
+                let envelope_count = *filler_envelope_counts.get(name).unwrap_or(&0);
+                let stats = model_stats(model);
+                Some(FillerEntry {
+                    universe_id,
+                    envelope_count,
+                    cell_count: stats.cell_count,
+                    surface_count: stats.surface_count,
+                    cell_id_runs: stats.cell_id_runs,
+                    surface_id_runs: stats.surface_id_runs,
+                    materials: stats.materials,
+                    universe_id_runs: stats.universe_id_runs,
+                    envelopes: filler_envelopes.get(name).cloned().unwrap_or_default(),
+                    metadata: project_manager
+                        .filler_metadata(name)
+                        .cloned()
+                        .unwrap_or_default(),
+                    name: name.clone(),
+                })
+            })
+            .collect();
 
-    // ── Fillers section ───────────────────────────────────────────────────────
-
-    fn write_fillers_section(&self, out: &mut String) {
-        let n = self.filler_entries.len();
-
-        out.push_str(
-            "<details open class=\"bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden\">\n",
-        );
-        out.push_str(
-            "<summary class=\"flex flex-wrap items-center gap-2 px-6 py-4 hover:bg-slate-50 select-none\">\n\
-             <span class=\"chevron text-slate-400\">&#9654;</span>\n\
-             <span class=\"font-semibold text-slate-900\">Filler Models</span>\n",
-        );
-        writeln!(
-            out,
-            "<span class=\"px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full font-medium\">{n}</span>"
-        )
-        .unwrap();
-        out.push_str("</summary>\n");
-
-        out.push_str(
-            "<div class=\"border-t border-slate-100 px-4 py-3 bg-slate-50\">\n\
-             <input type=\"text\"\n\
-             oninput=\"filterRows(this,'fillers-tbody')\"\n\
-             placeholder=\"Filter by filler name or universe ID…\"\n\
-             class=\"w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white \
-             focus:outline-none focus:ring-2 focus:ring-blue-500\">\n\
-             </div>\n",
-        );
-
-        out.push_str(
-            "<div class=\"overflow-x-auto\">\n\
-             <table class=\"w-full text-sm\">\n\
-             <thead>\n\
-             <tr class=\"bg-slate-50 border-y border-slate-200\">\n\
-             <th class=\"text-left px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide\">Filler</th>\n\
-             <th class=\"text-right px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide w-25\">Universe ID</th>\n\
-             <th class=\"text-right px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide w-24\">Envelopes</th>\n\
-             <th class=\"text-right px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide w-20\">Cells</th>\n\
-             <th class=\"text-right px-4 py-2 font-medium text-slate-500 text-xs uppercase tracking-wide w-24\">Surfaces</th>\n\
-             </tr>\n\
-             </thead>\n\
-             <tbody id=\"fillers-tbody\" class=\"divide-y divide-slate-100\">\n",
-        );
-
-        for entry in &self.filler_entries {
-            let name = h(&entry.name.to_string());
-            let uid = entry.universe_id.to_string();
-            let search_raw = format!("{name} {uid} {}", entry.envelope_count).to_lowercase();
-            let search_esc = h(&search_raw);
-
-            write!(
-                out,
-                "<tr data-search=\"{search_esc}\" class=\"hover:bg-blue-50/30\">\n\
-                 <td class=\"px-4 py-2.5 font-mono text-slate-700\">{name}</td>\n\
-                 <td class=\"px-4 py-2.5 text-right tabular-nums text-slate-600\">{uid}</td>\n\
-                 <td class=\"px-4 py-2.5 text-right tabular-nums text-slate-600\">{envelopes}</td>\n\
-                 <td class=\"px-4 py-2.5 text-right tabular-nums text-slate-600\">{cells}</td>\n\
-                 <td class=\"px-4 py-2.5 text-right tabular-nums text-slate-600\">{surfaces}</td>\n\
-                 </tr>\n",
-                envelopes = entry.envelope_count,
-                cells = entry.cell_count,
-                surfaces = entry.surface_count,
-            )
-            .unwrap();
+        Self {
+            warnings: envelope_entries
+                .iter()
+                .filter(|entry| entry.status == "unconfigured")
+                .map(|entry| format!("Envelope {} is not configured", entry.envelope_name))
+                .chain(project_manager.report_warnings.iter().cloned())
+                .chain(
+                    project_manager
+                        .source_name()
+                        .is_none()
+                        .then(|| "No source file selected".to_owned()),
+                )
+                .chain(
+                    envelope_structure
+                        .diagnostics()
+                        .iter()
+                        .chain(fillers.iter().flat_map(|(_, model)| model.diagnostics()))
+                        .map(|diagnostic| diagnostic.message.clone()),
+                )
+                .collect(),
+            config_path: config_path.display().to_string(),
+            commit_hash,
+            date_time: chrono::Utc::now()
+                .format("%Y-%m-%d %H:%M:%S UTC")
+                .to_string(),
+            total_cells,
+            total_surfaces,
+            envelope_structure: EnvelopeStructureStats {
+                cell_count: envelope_stats.cell_count,
+                surface_count: envelope_stats.surface_count,
+                cell_id_runs: envelope_stats.cell_id_runs,
+                surface_id_runs: envelope_stats.surface_id_runs,
+                universe_id_runs: envelope_stats.universe_id_runs,
+            },
+            envelope_entries,
+            filler_entries,
+            materials: project_manager
+                .materials_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+            tallies: project_manager
+                .tallies_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+            transforms: project_manager
+                .transforms_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+            source: project_manager.source_name().map(|n| n.to_string()),
         }
-
-        out.push_str("</tbody>\n</table>\n</div>\n</details>\n\n");
     }
 }
 
-// ── Stand-alone section helpers ───────────────────────────────────────────────
+// ─── Rendering ────────────────────────────────────────────────────────────────
 
-fn write_list_section(out: &mut String, title: &str, id: &str, items: &[String]) {
-    let n = items.len();
-    let tbody_id = format!("{id}-tbody");
-
-    write!(
-        out,
-        "<details open class=\"bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden\">\n\
-         <summary class=\"flex flex-wrap items-center gap-2 px-6 py-4 hover:bg-slate-50 select-none\">\n\
-         <span class=\"chevron text-slate-400\">&#9654;</span>\n\
-         <span class=\"font-semibold text-slate-900\">{title}</span>\n\
-         <span class=\"px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full font-medium\">{n}</span>\n\
-         </summary>\n",
-        title = h(title),
-    )
-    .unwrap();
-
-    write!(
-        out,
-        "<div class=\"border-t border-slate-100 px-4 py-3 bg-slate-50\">\n\
-         <input type=\"text\"\n\
-         oninput=\"filterRows(this,'{tbody_id}')\"\n\
-         placeholder=\"Filter {title} files…\"\n\
-         class=\"w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white \
-         focus:outline-none focus:ring-2 focus:ring-blue-500\">\n\
-         </div>\n\
-         <table class=\"w-full text-sm\">\n\
-         <tbody id=\"{tbody_id}\" class=\"divide-y divide-slate-100\">\n",
-        title = h(title),
-    )
-    .unwrap();
-
-    for item in items {
-        let item_esc = h(item);
-        let search_esc = h(&item.to_lowercase());
-        write!(
-            out,
-            "<tr data-search=\"{search_esc}\" class=\"hover:bg-slate-50\">\n\
-             <td class=\"px-4 py-2.5 font-mono text-slate-700\">{item_esc}</td>\n\
-             </tr>\n"
-        )
-        .unwrap();
+impl BuildReport {
+    pub(crate) fn from_record(record: BuildRecord) -> Option<Self> {
+        let snapshot = record.snapshot?;
+        Some(Self {
+            schema_version: SCHEMA_VERSION,
+            build_status: record.status.label(),
+            checks: record
+                .checks
+                .into_iter()
+                .map(|check| Check {
+                    name: check.kind.label(),
+                    status: check.status.label(),
+                    details: check.details,
+                })
+                .collect(),
+            warnings: snapshot
+                .warnings
+                .into_iter()
+                .chain(record.warnings)
+                .collect(),
+            evidence: record.evidence,
+            config_path: snapshot.config_path,
+            gitronics_version: env!("CARGO_PKG_VERSION"),
+            commit_hash: snapshot.commit_hash,
+            date_time: snapshot.date_time,
+            total_cells: snapshot.total_cells,
+            total_surfaces: snapshot.total_surfaces,
+            envelope_structure: snapshot.envelope_structure,
+            envelope_entries: snapshot.envelope_entries,
+            filler_entries: snapshot.filler_entries,
+            materials: snapshot.materials,
+            tallies: snapshot.tallies,
+            transforms: snapshot.transforms,
+            source: snapshot.source,
+        })
     }
 
-    out.push_str("</tbody>\n</table>\n</details>\n\n");
+    pub fn write(&self, output: &Path) -> Result<(), crate::error::GitronicsError> {
+        let json = self.to_json();
+        for (name, contents) in [
+            ("build_report.json", json.clone()),
+            ("build_report.html", self.generate_html_from_json(&json)),
+        ] {
+            let path = output.join(name);
+            std::fs::write(&path, contents)
+                .map_err(|error| crate::error::GitronicsError::io_path(&path, error))?;
+        }
+        Ok(())
+    }
+
+    /// Serialises the manifest to pretty-printed JSON (for `build_report.json`).
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self)
+            .unwrap_or_else(|e| format!("{{\"error\":\"failed to serialize build report: {e}\"}}"))
+    }
+
+    /// Renders the complete self-contained interactive HTML document around an
+    /// already-serialised manifest.
+    ///
+    /// A build writes both `build_report.json` and `build_report.html`; taking
+    /// the JSON as an argument lets it serialise the manifest once rather than
+    /// once per artefact.
+    pub fn generate_html_from_json(&self, json: &str) -> String {
+        let data = escape_json_for_script(json);
+        let mut title = String::new();
+        push_escaped_text(&mut title, &self.config_path);
+
+        let mut out =
+            String::with_capacity(TEMPLATE.len() + STYLE.len() + SCRIPT.len() + data.len());
+        let mut rest = TEMPLATE;
+        // Substituted in document order, so a single forward scan suffices and
+        // no placeholder can be matched inside a value already substituted.
+        for (placeholder, value) in [
+            (TITLE_MARKER, title.as_str()),
+            (STYLE_MARKER, STYLE),
+            (DATA_MARKER, data.as_str()),
+            (SCRIPT_MARKER, SCRIPT),
+        ] {
+            let (before, after) = rest
+                .split_once(placeholder)
+                .expect("report.html is missing a placeholder; see template_has_every_placeholder");
+            out.push_str(before);
+            out.push_str(value);
+            rest = after;
+        }
+        out.push_str(rest);
+        out
+    }
 }
 
-fn write_source_section(out: &mut String, source: &str) {
-    let source_esc = h(source);
-    write!(
-        out,
-        "<details open class=\"bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden\">\n\
-         <summary class=\"flex items-center gap-2 px-6 py-4 hover:bg-slate-50 select-none\">\n\
-         <span class=\"chevron text-slate-400\">&#9654;</span>\n\
-         <span class=\"font-semibold text-slate-900\">Source</span>\n\
-         </summary>\n\
-         <div class=\"border-t border-slate-100 px-6 py-4\">\n\
-         <span class=\"font-mono text-sm text-slate-700\">{source_esc}</span>\n\
-         </div>\n\
-         </details>\n\n"
-    )
-    .unwrap();
+// ─── Template ─────────────────────────────────────────────────────────────────
+
+/// The viewer and its vendored line-diff library under `report/` are inlined into
+/// one self-contained document at build time. They are not compiled or bundled —
+/// `include_str!` is the whole pipeline — so a Rust-only contributor needs no
+/// JavaScript toolchain, and `cargo publish` needs no build step.
+const TEMPLATE: &str = include_str!("../report/report.html");
+const STYLE: &str = include_str!("../report/report.css");
+const SCRIPT: &str = concat!(
+    include_str!("../report/vendor/diff.js"),
+    "\n",
+    include_str!("../report/report.js")
+);
+
+const TITLE_MARKER: &str = "{{TITLE}}";
+const STYLE_MARKER: &str = "{{STYLE}}";
+const DATA_MARKER: &str = "{{DATA}}";
+const SCRIPT_MARKER: &str = "{{SCRIPT}}";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Makes a JSON string safe to embed inside a `<script type="application/json">`
+/// element. Escaping `<`, `>` and `&` as `\uXXXX` keeps the payload valid JSON
+/// while preventing any `</script>` breakout (an HTML-injection vector).
+/// Also escapes the JS line separators U+2028/U+2029.
+fn escape_json_for_script(json: &str) -> String {
+    let mut out = String::with_capacity(json.len() + 16);
+    for ch in json.chars() {
+        match ch {
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
-fn write_footer_and_scripts(out: &mut String) {
-    out.push_str(
-        "<footer class=\"max-w-7xl mx-auto px-6 py-8 text-center text-xs text-slate-400\">\n\
-         Generated by <a href=\"https://fusion4energy.github.io/gitronics/latest\" \
-         class=\"underline hover:text-slate-600\">gitronics</a>\n\
-         </footer>\n\n",
-    );
-
-    // Tiny vanilla-JS filter: hides rows whose data-search doesn't contain the query.
-    out.push_str(
-        "<script>\n\
-         function filterRows(input, tbodyId) {\n\
-         var q = input.value.toLowerCase();\n\
-         document.getElementById(tbodyId).querySelectorAll('tr').forEach(function(row) {\n\
-         var text = (row.getAttribute('data-search') || '').toLowerCase();\n\
-         row.style.display = text.includes(q) ? '' : 'none';\n\
-         });\n\
-         }\n\
-         </script>\n",
-    );
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/// Stat card widget.
-fn stat_card(out: &mut String, label: &str, value: &str, sub: Option<&str>) {
-    let sub_html = sub.map_or(String::new(), |s| {
-        format!("<p class=\"text-xs text-slate-400 mt-0.5\">{}</p>", h(s))
-    });
-    write!(
-        out,
-        "<div class=\"bg-white rounded-xl border border-slate-200 shadow-sm p-4\">\n\
-         <p class=\"text-2xl font-bold text-slate-900\">{value}</p>\n\
-         <p class=\"text-xs font-medium text-slate-500 uppercase tracking-wide mt-1\">{label}</p>\n\
-         {sub_html}\n\
-         </div>\n",
-        value = h(value),
-        label = h(label),
-    )
-    .unwrap();
-}
-
-/// Minimal HTML escaping — prevents XSS and broken markup.
-fn h(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
+/// Appends `s` to `out` with HTML-special characters escaped (used for the
+/// document `<title>` only; all dynamic content otherwise lives in JSON).
+fn push_escaped_text(out: &mut String, s: &str) {
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -520,35 +506,74 @@ fn h(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
-    /// Build a minimal `BuildReport` with one filled envelope, one null envelope,
-    /// and one filler model used by two envelopes.
+    /// Renders a report to HTML the way a build does.
+    fn render(report: &BuildReport) -> String {
+        report.generate_html_from_json(&report.to_json())
+    }
+
+    /// Builds a free-form metadata map from `(key, json-value)` pairs.
+    fn meta(pairs: &[(&str, serde_json::Value)]) -> Metadata {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+
+    /// A minimal report: one filled envelope with a transform, one filled
+    /// envelope without, one null envelope, and one filler used by two envelopes.
     fn sample_report() -> BuildReport {
         BuildReport {
+            schema_version: SCHEMA_VERSION,
             config_path: "project/config.yaml".to_string(),
+            build_status: "success",
+            checks: vec![],
+            warnings: vec![],
+            evidence: Evidence::default(),
             gitronics_version: "1.2.3",
             commit_hash: "abc1234".to_string(),
             date_time: "2026-01-01 00:00:00 UTC".to_string(),
             total_cells: 500,
             total_surfaces: 800,
+            envelope_structure: EnvelopeStructureStats {
+                cell_count: 380,
+                surface_count: 600,
+                cell_id_runs: vec![[1, 379], [500, 500]],
+                surface_id_runs: vec![[1, 599]],
+                universe_id_runs: vec![[0, 0]],
+            },
             envelope_entries: vec![
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_a"),
+                    status: "filled",
+                    cell_ids: vec![1],
                     filler_name: Some(FillerName::new("universe_101")),
                     universe_id: Some(UniverseId::new(101)),
                     transform: Some("TR1".to_string()),
+                    metadata: meta(&[
+                        ("description", json!("Blanket A")),
+                        ("zone", json!("Tokamak")),
+                        ("sector", json!("1")),
+                    ]),
                 },
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_b"),
+                    status: "filled",
+                    cell_ids: vec![2],
                     filler_name: Some(FillerName::new("universe_101")),
                     universe_id: Some(UniverseId::new(101)),
                     transform: None,
+                    metadata: meta(&[("zone", json!("Tokamak")), ("sector", json!("1"))]),
                 },
                 EnvelopeEntry {
                     envelope_name: EnvelopeName::new("env_null"),
+                    status: "empty",
+                    cell_ids: vec![3],
                     filler_name: None,
                     universe_id: None,
                     transform: None,
+                    metadata: Metadata::new(),
                 },
             ],
             filler_entries: vec![FillerEntry {
@@ -557,6 +582,15 @@ mod tests {
                 envelope_count: 2,
                 cell_count: 120,
                 surface_count: 200,
+                cell_id_runs: vec![[250000, 250041], [250100, 250178]],
+                surface_id_runs: vec![[250000, 250199]],
+                materials: vec![110, 907],
+                universe_id_runs: vec![[101, 101]],
+                envelopes: vec![EnvelopeName::new("env_a"), EnvelopeName::new("env_b")],
+                metadata: meta(&[
+                    ("description", json!("Central solenoid")),
+                    ("pbs", json!("11")),
+                ]),
             }],
             materials: vec!["all_materials.mat".to_string()],
             tallies: vec!["neutron_flux.tally".to_string()],
@@ -565,11 +599,64 @@ mod tests {
         }
     }
 
-    // ── Structural ────────────────────────────────────────────────────────────
+    // ── Id runs ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn runs_from_ids_coalesces_consecutive_values() {
+        assert_eq!(runs_from_ids(vec![]), Vec::<[i64; 2]>::new());
+        assert_eq!(runs_from_ids(vec![7]), vec![[7, 7]]);
+        assert_eq!(runs_from_ids(vec![1, 2, 3]), vec![[1, 3]]);
+        assert_eq!(
+            runs_from_ids(vec![1, 2, 5, 6, 9]),
+            vec![[1, 2], [5, 6], [9, 9]]
+        );
+    }
+
+    #[test]
+    fn runs_from_ids_sorts_and_deduplicates() {
+        assert_eq!(runs_from_ids(vec![3, 1, 2, 2, 1]), vec![[1, 3]]);
+        assert_eq!(runs_from_ids(vec![-2, -1, 4]), vec![[-2, -1], [4, 4]]);
+    }
+
+    // ── Model statistics ──────────────────────────────────────────────────────
+
+    #[test]
+    fn model_stats_collects_root_nested_and_negative_universes() {
+        let model =
+            Model::parse("t\n1 0 -1\n2 0 -1 u=10\n3 0 -1 u=-12\n4 0 -1 u=10 fill=99\n\n1 so 5\n\n");
+        assert_eq!(
+            model_stats(&model).universe_id_runs,
+            vec![[0, 0], [10, 10], [12, 12]]
+        );
+        let inherited =
+            Model::parse("t\n1 0 -1 u=10\n2 LIKE 1 BUT imp:n=1\n3 LIKE 2 BUT u=12\n\n1 so 5\n\n");
+        assert_eq!(
+            model_stats(&inherited).universe_id_runs,
+            vec![[10, 10], [12, 12]]
+        );
+    }
+
+    #[test]
+    fn model_stats_counts_cards_and_collects_materials() {
+        let model = Model::parse(
+            "t\n1 3 -1.0 -1 imp:n=1\n2 0 1 -2 imp:n=1\n3 3 -1.0 2 -3 imp:n=1\n\n\
+             1 SO 5\n2 SO 6\n3 SO 7\n\nM3 1001 1\n",
+        );
+        let stats = model_stats(&model);
+
+        assert_eq!(stats.cell_count, 3);
+        assert_eq!(stats.surface_count, 3);
+        assert_eq!(stats.cell_id_runs, vec![[1, 3]]);
+        assert_eq!(stats.surface_id_runs, vec![[1, 3]]);
+        // Void (material 0) is not a material; 3 appears twice but is distinct.
+        assert_eq!(stats.materials, vec![3]);
+    }
+
+    // ── HTML shell ────────────────────────────────────────────────────────────
 
     #[test]
     fn html_is_valid_document() {
-        let html = sample_report().generate_html();
+        let html = render(&sample_report());
         assert!(html.starts_with("<!DOCTYPE html>"), "missing doctype");
         assert!(html.contains("<html"), "missing <html>");
         assert!(html.contains("</html>"), "missing </html>");
@@ -577,145 +664,254 @@ mod tests {
     }
 
     #[test]
+    fn html_embeds_data_and_assets() {
+        let html = render(&sample_report());
+        assert!(
+            html.contains("id=\"report-data\""),
+            "missing embedded data block"
+        );
+        // CSS and JS assets are inlined.
+        assert!(html.contains("--accent"), "stylesheet not inlined");
+        assert!(html.contains("report-data"), "viewer script not inlined");
+        assert!(html.contains("diffLines"), "line-diff library not inlined");
+        assert!(
+            html.contains("BSD 3-Clause License"),
+            "vendor license missing"
+        );
+    }
+
+    #[test]
     fn title_contains_config_path() {
-        let html = sample_report().generate_html();
+        let html = render(&sample_report());
         assert!(
             html.contains("project/config.yaml"),
             "config path missing from title"
         );
     }
 
-    // ── Stat cards ────────────────────────────────────────────────────────────
+    // ── JSON manifest ─────────────────────────────────────────────────────────
 
     #[test]
-    fn stat_cards_show_totals() {
-        let html = sample_report().generate_html();
-        assert!(html.contains(">500<"), "total cells not rendered");
-        assert!(html.contains(">800<"), "total surfaces not rendered");
-        assert!(html.contains(">1<"), "filler model count not rendered");
-    }
-
-    // ── Envelope table ────────────────────────────────────────────────────────
-
-    #[test]
-    fn filled_envelope_shows_filler_and_universe_id() {
-        let html = sample_report().generate_html();
-        assert!(html.contains("env_a"), "filled envelope name missing");
-        assert!(html.contains("universe_101"), "filler name missing");
-        assert!(html.contains(">101<"), "universe ID missing");
+    fn json_is_valid_and_roundtrips() {
+        let json = sample_report().to_json();
+        let value: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+        assert_eq!(value["total_cells"], 500);
+        assert_eq!(value["total_surfaces"], 800);
+        assert_eq!(value["envelope_entries"].as_array().unwrap().len(), 3);
+        assert_eq!(value["filler_entries"].as_array().unwrap().len(), 1);
     }
 
     #[test]
-    fn filled_envelope_shows_transform() {
-        let html = sample_report().generate_html();
-        assert!(html.contains("TR1"), "transform text missing");
-    }
-
-    #[test]
-    fn filled_envelope_without_transform_shows_dash() {
-        let html = sample_report().generate_html();
-        // env_b has no transform — the em-dash placeholder should appear
-        assert!(html.contains("—"), "em-dash missing for empty transform");
-    }
-
-    #[test]
-    fn null_envelope_renders_null_marker() {
-        let html = sample_report().generate_html();
-        assert!(html.contains("env_null"), "null envelope name missing");
-        assert!(html.contains(">null<"), "null marker missing");
-    }
-
-    // ── Filler table ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn filler_row_shows_envelope_count() {
-        let html = sample_report().generate_html();
-        // envelope_count = 2 should appear as a right-aligned cell
-        assert!(html.contains(">2<"), "filler envelope count missing");
-    }
-
-    #[test]
-    fn filler_row_shows_cell_and_surface_counts() {
-        let html = sample_report().generate_html();
-        assert!(html.contains(">120<"), "filler cell count missing");
-        assert!(html.contains(">200<"), "filler surface count missing");
-    }
-
-    // ── Optional sections ─────────────────────────────────────────────────────
-
-    #[test]
-    fn materials_section_present_when_non_empty() {
-        let html = sample_report().generate_html();
-        assert!(html.contains("all_materials.mat"), "materials file missing");
-    }
-
-    #[test]
-    fn tallies_section_present_when_non_empty() {
-        let html = sample_report().generate_html();
-        assert!(html.contains("neutron_flux.tally"), "tally file missing");
-    }
-
-    #[test]
-    fn transforms_section_absent_when_empty() {
-        let html = sample_report().generate_html();
+    fn json_serializes_domain_ids_transparently() {
+        let json = sample_report().to_json();
+        // FillerName -> string, UniverseId -> number.
+        assert!(json.contains("\"universe_101\""), "filler name missing");
         assert!(
-            !html.contains("<span class=\"font-semibold text-slate-900\">Transforms</span>"),
-            "transforms section should not appear when empty"
+            json.contains("\"universe_id\": 101"),
+            "universe id not numeric"
         );
     }
 
     #[test]
-    fn source_section_present_when_some() {
-        let html = sample_report().generate_html();
-        assert!(html.contains("plasma.source"), "source file missing");
+    fn json_carries_arbitrary_metadata_verbatim() {
+        let value: serde_json::Value = serde_json::from_str(&sample_report().to_json()).unwrap();
+        let filler = &value["filler_entries"][0];
+        assert_eq!(filler["metadata"]["pbs"], "11");
+        assert_eq!(filler["metadata"]["description"], "Central solenoid");
+
+        let env = &value["envelope_entries"][0];
+        assert_eq!(env["metadata"]["zone"], "Tokamak");
+        assert_eq!(env["metadata"]["sector"], "1");
+        assert_eq!(env["metadata"]["description"], "Blanket A");
     }
 
     #[test]
-    fn source_section_absent_when_none() {
+    fn json_encodes_exact_id_runs() {
+        let value: serde_json::Value = serde_json::from_str(&sample_report().to_json()).unwrap();
+        let filler = &value["filler_entries"][0];
+        assert_eq!(filler["cell_id_runs"][0][0], 250000);
+        assert_eq!(filler["cell_id_runs"][0][1], 250041);
+        assert_eq!(filler["cell_id_runs"][1][0], 250100);
+        assert_eq!(filler["surface_id_runs"][0][1], 250199);
+        assert_eq!(filler["materials"][0], 110);
+        assert_eq!(filler["envelopes"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn null_envelope_omits_optional_fields() {
+        let value: serde_json::Value = serde_json::from_str(&sample_report().to_json()).unwrap();
+        let null_env = &value["envelope_entries"][2];
+        assert_eq!(null_env["envelope_name"], "env_null");
+        assert!(
+            null_env.get("filler_name").is_none(),
+            "null env must omit filler"
+        );
+        assert!(null_env.get("universe_id").is_none());
+        assert!(
+            null_env.get("metadata").is_none(),
+            "empty metadata must be omitted"
+        );
+    }
+
+    #[test]
+    fn empty_data_sections_serialize_as_arrays() {
+        let value: serde_json::Value = serde_json::from_str(&sample_report().to_json()).unwrap();
+        assert!(value["transforms"].as_array().unwrap().is_empty());
+        assert_eq!(value["source"], "plasma.source");
+    }
+
+    #[test]
+    fn source_omitted_when_none() {
         let mut report = sample_report();
         report.source = None;
-        let html = report.generate_html();
-        assert!(
-            !html.contains("<span class=\"font-semibold text-slate-900\">Source</span>"),
-            "source section should not appear when None"
+        let value: serde_json::Value = serde_json::from_str(&report.to_json()).unwrap();
+        assert!(value.get("source").is_none(), "source should be omitted");
+    }
+
+    // ── Shared JS fixture ─────────────────────────────────────────────────────
+
+    /// The JavaScript viewer is tested against `sample_report()` too, so the two
+    /// must describe the same manifest. Keeping the fixture generated from here
+    /// means the JSON contract — `SCHEMA_VERSION` included — cannot drift out
+    /// from under the viewer unnoticed.
+    ///
+    /// Regenerate with `UPDATE_GOLDEN=1 cargo test`.
+    #[test]
+    fn js_fixture_matches_sample_report() {
+        const FIXTURE_PATH: &str = "report/test/fixtures/sample_report.json";
+        let expected = sample_report().to_json();
+
+        if std::env::var_os("UPDATE_GOLDEN").is_some() {
+            std::fs::create_dir_all("report/test/fixtures").unwrap();
+            std::fs::write(FIXTURE_PATH, &expected).unwrap();
+            return;
+        }
+
+        let actual = std::fs::read_to_string(FIXTURE_PATH).unwrap_or_else(|e| {
+            panic!("could not read `{FIXTURE_PATH}`: {e}\nRun `UPDATE_GOLDEN=1 cargo test`.")
+        });
+        assert_eq!(
+            actual, expected,
+            "`{FIXTURE_PATH}` is stale — the viewer is being tested against a \
+             manifest gitronics no longer produces. Run `UPDATE_GOLDEN=1 cargo test`."
         );
     }
 
-    // ── HTML escaping ─────────────────────────────────────────────────────────
+    // ── Template ──────────────────────────────────────────────────────────────
 
+    /// `generate_html_from_json` scans the template once, forwards, so every
+    /// placeholder must be present exactly once and in this order. The `expect`
+    /// in that scan can then never fire in production.
     #[test]
-    fn html_special_chars_in_filler_name_are_escaped() {
-        let mut report = sample_report();
-        report.filler_entries[0].name = FillerName::new("<script>alert(1)</script>");
-        let html = report.generate_html();
-        assert!(
-            !html.contains("<script>alert(1)"),
-            "unescaped XSS payload in filler name"
-        );
-        assert!(
-            html.contains("&lt;script&gt;"),
-            "filler name not HTML-escaped"
+    fn template_has_every_placeholder_in_document_order() {
+        let positions: Vec<usize> = [TITLE_MARKER, STYLE_MARKER, DATA_MARKER, SCRIPT_MARKER]
+            .iter()
+            .map(|m| {
+                assert_eq!(
+                    TEMPLATE.matches(m).count(),
+                    1,
+                    "`{m}` must appear exactly once in report/report.html"
+                );
+                TEMPLATE.find(m).unwrap()
+            })
+            .collect();
+
+        let mut sorted = positions.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            positions, sorted,
+            "placeholders must appear in the order they are substituted"
         );
     }
 
+    /// The document shell is not covered by a golden file (it carries ~90 KB of
+    /// inlined CSS and JS), so pin the parts that matter here.
     #[test]
-    fn html_special_chars_in_envelope_name_are_escaped() {
-        let mut report = sample_report();
-        report.envelope_entries[0].envelope_name = EnvelopeName::new("env&name<test>");
-        let html = report.generate_html();
-        assert!(!html.contains("env&name"), "raw ampersand in envelope name");
-        assert!(html.contains("env&amp;name"), "envelope name not escaped");
+    fn html_shell_is_stable() {
+        let html = render(&sample_report());
+        assert!(html.starts_with(
+            "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n"
+        ));
+        // The theme is set before first paint, or the page flashes the wrong one.
+        assert!(html.contains(
+            "<script>try{var t=localStorage.getItem('gitronics-theme')||\
+((window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');\
+document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>"
+        ));
+        assert!(html.contains("<script type=\"application/json\" id=\"report-data\">"));
+        assert!(html.ends_with("\n  </script>\n</body>\n</html>\n"));
+        // No placeholder survived substitution.
+        for marker in [TITLE_MARKER, STYLE_MARKER, DATA_MARKER, SCRIPT_MARKER] {
+            assert!(!html.contains(marker), "`{marker}` was not substituted");
+        }
     }
 
     #[test]
-    fn html_special_chars_in_config_path_are_escaped() {
-        let mut report = sample_report();
-        report.config_path = "path/<config>.yaml".to_string();
-        let html = report.generate_html();
-        assert!(!html.contains("path/<config>"), "raw angle brackets leaked");
+    fn assets_are_inlined_not_linked() {
+        let html = render(&sample_report());
+        assert!(html.contains("--accent"), "stylesheet not inlined");
         assert!(
-            html.contains("path/&lt;config&gt;"),
-            "config path not escaped"
+            html.contains("gitronics build report"),
+            "viewer script not inlined"
         );
+        // A self-contained, offline document references nothing external.
+        assert!(!html.contains("<link rel=\"stylesheet\""));
+        assert!(!html.contains("src=\"http"));
+    }
+
+    // ── Escaping helpers ──────────────────────────────────────────────────────
+
+    #[test]
+    fn json_escaping_neutralises_markup_and_line_separators() {
+        assert_eq!(escape_json_for_script("<>&"), "\\u003c\\u003e\\u0026");
+        assert_eq!(
+            escape_json_for_script("a\u{2028}b\u{2029}c"),
+            "a\\u2028b\\u2029c"
+        );
+        // Everything else, including non-ASCII, passes through untouched.
+        assert_eq!(escape_json_for_script("plain — text"), "plain — text");
+        assert_eq!(escape_json_for_script(""), "");
+    }
+
+    #[test]
+    fn text_escaping_covers_every_html_special_character() {
+        let mut out = String::new();
+        push_escaped_text(&mut out, "&<>\"'");
+        assert_eq!(out, "&amp;&lt;&gt;&quot;&#39;");
+    }
+
+    #[test]
+    fn text_escaping_appends_rather_than_replaces() {
+        let mut out = String::from("prefix:");
+        push_escaped_text(&mut out, "<x>");
+        assert_eq!(out, "prefix:&lt;x&gt;");
+    }
+
+    // ── Injection safety ──────────────────────────────────────────────────────
+
+    #[test]
+    fn script_breakout_is_neutralised_in_html() {
+        let mut report = sample_report();
+        report.filler_entries[0].name = FillerName::new("</script><script>alert(1)</script>");
+        let html = render(&report);
+        // The literal closing tag must never appear inside the data block.
+        assert!(
+            !html.contains("</script><script>alert(1)"),
+            "script breakout not neutralised"
+        );
+        // The angle brackets are unicode-escaped instead.
+        assert!(html.contains("\\u003c"), "angle brackets not escaped");
+    }
+
+    #[test]
+    fn embedded_json_data_block_has_no_raw_angle_brackets() {
+        let report = sample_report();
+        let html = render(&report);
+        let start = html.find("id=\"report-data\">").unwrap() + "id=\"report-data\">".len();
+        let end = html[start..].find("</script>").unwrap() + start;
+        let block = &html[start..end];
+        assert!(!block.contains('<'), "data block contains raw '<'");
+        assert!(!block.contains('>'), "data block contains raw '>'");
     }
 }

@@ -114,7 +114,9 @@ Requires the stable [Rust toolchain](https://rustup.rs/) and [maturin](https://g
 git clone https://github.com/Fusion4Energy/gitronics
 cd gitronics
 pip install maturin
-maturin develop --release
+maturin develop --release 
+# Or to generate a wheel for distribution:
+maturin build --release --target x86_64-pc-windows-gnu --zig -i python3.12
 ```
 </details>
 

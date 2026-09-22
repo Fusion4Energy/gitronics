@@ -9,14 +9,16 @@ use log::{info, warn};
 use migjorn::Model;
 use rayon::prelude::*;
 
+use crate::error::GitronicsError;
+use crate::mcnp_io::{data_cards_from_text, parse_model_text, sort_data_card_chunks};
+use crate::provenance::SourceFile;
 use crate::types::{FileName, FillerName};
-use crate::utils::{GitronicsError, parse_model_file, read_data_cards_text, sort_data_card_chunks};
 
 use super::ProjectManager;
 
 impl ProjectManager {
     /// Loads and parses the envelope structure model named in the configuration.
-    pub fn load_envelope_structure(&self) -> Result<Model, GitronicsError> {
+    pub fn load_envelope_structure(&mut self) -> Result<Model, GitronicsError> {
         let envelope_structure_name = self
             .model_config
             .envelope_structure()
@@ -24,13 +26,20 @@ impl ProjectManager {
         let envelope_structure_path = self.file_path(envelope_structure_name)?;
 
         info!("Loading: {}", envelope_structure_path.display());
-        parse_model_file(envelope_structure_path, envelope_structure_name)
+        let (text, source) = SourceFile::read(envelope_structure_path)?;
+        let model = parse_model_text(&text, envelope_structure_name)?;
+        self.evidence.record_input(
+            "envelope_structure",
+            envelope_structure_name.as_ref(),
+            source,
+        );
+        Ok(model)
     }
 
     /// Loads all filler models referenced by the configuration, paired with
     /// their names. Fillers are deduplicated (a filler used by several envelopes
     /// is loaded once) and parsed in parallel using rayon.
-    pub fn load_fillers(&self) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
+    fn load_fillers(&mut self) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
         // Filler names from the config, ordered and deduplicated.
         let mut filler_names: Vec<&FillerName> =
             self.model_config.envelopes().values().flatten().collect();
@@ -49,40 +58,62 @@ impl ProjectManager {
             info!("Loading: {}", filler_path.display());
         }
 
-        name_and_paths
+        let loaded = name_and_paths
             .into_par_iter()
             .map(|(filler_name, filler_path)| {
                 let file_name = FileName::from(filler_name);
-                let model = parse_model_file(filler_path, &file_name)?;
-                Ok((filler_name.clone(), model))
+                let (text, source) = SourceFile::read(filler_path)?;
+                let model = parse_model_text(&text, &file_name)?;
+                Ok((filler_name.clone(), model, source))
             })
-            .collect::<Result<Vec<_>, GitronicsError>>()
+            .collect::<Result<Vec<_>, GitronicsError>>()?;
+        Ok(loaded
+            .into_iter()
+            .map(|(name, model, source)| {
+                self.evidence.record_input("filler", name.as_ref(), source);
+                (name, model)
+            })
+            .collect())
+    }
+
+    /// Loads all filler models (as [`Self::load_fillers`]) and, in the same
+    /// call, caches each one's metadata so [`Self::transformation`] is safe to
+    /// call for any of the returned fillers immediately afterwards.
+    ///
+    /// Pairing the two loads here — rather than leaving callers to sequence
+    /// `load_fillers` and `load_metadata_for_fillers` themselves — means the
+    /// precondition `transformation` documents can't be forgotten.
+    pub fn load_fillers_with_metadata(
+        &mut self,
+    ) -> Result<Vec<(FillerName, Model)>, GitronicsError> {
+        let fillers = self.load_fillers()?;
+        self.load_metadata_for_fillers(fillers.iter().map(|(name, _)| name))?;
+        Ok(fillers)
     }
 
     /// Loads the transformation data-card text from the configured files.
-    pub fn load_transforms(&self) -> Result<String, GitronicsError> {
-        self.load_data_cards_text(self.model_config.transformations())
+    pub fn load_transforms(&mut self) -> Result<String, GitronicsError> {
+        let names = self.model_config.transformations().to_vec();
+        self.load_data_cards_text("transforms", &names)
     }
 
     /// Loads the material data-card text from the configured files.
-    pub fn load_materials(&self) -> Result<String, GitronicsError> {
-        self.load_data_cards_text(self.model_config.materials())
+    pub fn load_materials(&mut self) -> Result<String, GitronicsError> {
+        let names = self.model_config.materials().to_vec();
+        self.load_data_cards_text("materials", &names)
     }
 
     /// Loads the tally data-card text from the configured files.
-    pub fn load_tallies(&self) -> Result<String, GitronicsError> {
-        self.load_data_cards_text(self.model_config.tallies())
+    pub fn load_tallies(&mut self) -> Result<String, GitronicsError> {
+        let names = self.model_config.tallies().to_vec();
+        self.load_data_cards_text("tallies", &names)
     }
 
     /// Loads the source data-card text, or an empty string if no source file is
     /// specified in the configuration.
-    pub fn load_source(&self) -> Result<String, GitronicsError> {
-        match self.model_config.source() {
-            Some(source_name) => {
-                let source_path = self.file_path(source_name)?;
-                info!("Loading: {}", source_path.display());
-                read_data_cards_text(source_path, source_name)
-            }
+    pub fn load_source(&mut self) -> Result<String, GitronicsError> {
+        match self.model_config.source().cloned() {
+            Some(source_name) => self.load_data_cards_text("source", &[source_name]),
             None => {
                 warn!("No source file specified in configuration");
                 Ok(String::new())
@@ -94,12 +125,20 @@ impl ProjectManager {
     /// separated block per file. Blocks are ordered by the id of each file's
     /// first data card (deterministic output, independent of configuration
     /// order); cards inside a file keep their original order.
-    fn load_data_cards_text(&self, names: &[FileName]) -> Result<String, GitronicsError> {
+    fn load_data_cards_text(
+        &mut self,
+        role: &str,
+        names: &[FileName],
+    ) -> Result<String, GitronicsError> {
         let mut chunks = Vec::new();
         for name in names {
             let path = self.file_path(name)?;
             info!("Loading: {}", path.display());
-            chunks.push(read_data_cards_text(path, name)?);
+            let (text, source) = SourceFile::read(path)?;
+            let cards = data_cards_from_text(&text, name)?;
+            self.evidence.record_data_cards(&source.path, &cards);
+            self.evidence.record_input(role, name.as_ref(), source);
+            chunks.push(cards);
         }
         sort_data_card_chunks(&mut chunks);
         Ok(chunks.join("\n"))

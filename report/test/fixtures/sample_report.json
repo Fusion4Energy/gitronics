@@ -1,0 +1,138 @@
+{
+  "schema_version": 2,
+  "build_status": "success",
+  "checks": [],
+  "warnings": [],
+  "evidence": {
+    "inputs": [],
+    "configuration_chain": [],
+    "assignment_origins": {},
+    "resolved_configuration": null,
+    "full_commit": null,
+    "dirty": null,
+    "content_fingerprint": "",
+    "inputs_unchanged": null,
+    "output": null,
+    "data_cards": []
+  },
+  "config_path": "project/config.yaml",
+  "gitronics_version": "1.2.3",
+  "commit_hash": "abc1234",
+  "date_time": "2026-01-01 00:00:00 UTC",
+  "total_cells": 500,
+  "total_surfaces": 800,
+  "envelope_structure": {
+    "cell_count": 380,
+    "surface_count": 600,
+    "cell_id_runs": [
+      [
+        1,
+        379
+      ],
+      [
+        500,
+        500
+      ]
+    ],
+    "surface_id_runs": [
+      [
+        1,
+        599
+      ]
+    ],
+    "universe_id_runs": [
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  "envelope_entries": [
+    {
+      "envelope_name": "env_a",
+      "status": "filled",
+      "cell_ids": [
+        1
+      ],
+      "filler_name": "universe_101",
+      "universe_id": 101,
+      "transform": "TR1",
+      "metadata": {
+        "description": "Blanket A",
+        "zone": "Tokamak",
+        "sector": "1"
+      }
+    },
+    {
+      "envelope_name": "env_b",
+      "status": "filled",
+      "cell_ids": [
+        2
+      ],
+      "filler_name": "universe_101",
+      "universe_id": 101,
+      "metadata": {
+        "zone": "Tokamak",
+        "sector": "1"
+      }
+    },
+    {
+      "envelope_name": "env_null",
+      "status": "empty",
+      "cell_ids": [
+        3
+      ]
+    }
+  ],
+  "filler_entries": [
+    {
+      "name": "universe_101",
+      "universe_id": 101,
+      "envelope_count": 2,
+      "cell_count": 120,
+      "surface_count": 200,
+      "cell_id_runs": [
+        [
+          250000,
+          250041
+        ],
+        [
+          250100,
+          250178
+        ]
+      ],
+      "surface_id_runs": [
+        [
+          250000,
+          250199
+        ]
+      ],
+      "materials": [
+        110,
+        907
+      ],
+      "universe_id_runs": [
+        [
+          101,
+          101
+        ]
+      ],
+      "envelopes": [
+        "env_a",
+        "env_b"
+      ],
+      "metadata": {
+        "description": "Central solenoid",
+        "pbs": "11"
+      }
+    }
+  ],
+  "materials": [
+    "all_materials.mat"
+  ],
+  "tallies": [
+    "neutron_flux.tally"
+  ],
+  "transforms": [],
+  "source": "plasma.source"
+}

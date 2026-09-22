@@ -1,0 +1,426 @@
+{
+  "schema_version": 2,
+  "build_status": "success",
+  "checks": [
+    {
+      "name": "Geometry and transport physics",
+      "status": "not_performed",
+      "details": []
+    },
+    {
+      "name": "Envelope assignments",
+      "status": "passed",
+      "details": []
+    },
+    {
+      "name": "Data card parsing",
+      "status": "passed",
+      "details": []
+    },
+    {
+      "name": "Card ID collisions",
+      "status": "passed",
+      "details": []
+    },
+    {
+      "name": "Assembled model references",
+      "status": "passed",
+      "details": []
+    },
+    {
+      "name": "Input stability",
+      "status": "passed",
+      "details": []
+    }
+  ],
+  "warnings": [],
+  "evidence": {
+    "inputs": [
+      {
+        "name": "valid_configuration.yaml",
+        "role": "configuration",
+        "path": "valid_configuration.yaml",
+        "sha256": "0a90bfa3ae6b1f56ff0a517d0d75ffefd045a00adde496424c151b37404532bd",
+        "bytes": 260
+      },
+      {
+        "name": "envelope_structure",
+        "role": "envelope_structure",
+        "path": "../reference_model/envelope_structure.mcnp",
+        "sha256": "0e9444c800929369918be814ebd7bc9186df04e2366ff67577385a3dcc76fb64",
+        "bytes": 10640
+      },
+      {
+        "name": "envelope_structure",
+        "role": "envelope_metadata",
+        "path": "../reference_model/envelope_structure.metadata",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "name": "filler_model_1",
+        "role": "filler",
+        "path": "../reference_model/filler_models/filler_model_1.mcnp",
+        "sha256": "84cb61e4fa0522e8c52d75db0dbbda2312c57e4ab4d87e4124b781eda8f5d4b3",
+        "bytes": 935
+      },
+      {
+        "name": "filler_model_1",
+        "role": "filler_metadata",
+        "path": "../reference_model/filler_models/filler_model_1.metadata",
+        "sha256": "7e1d25fada2318d239fe74e35c14404470a273b7179a46875e47c7a845036ca7",
+        "bytes": 47
+      },
+      {
+        "name": "filler_model_2",
+        "role": "filler",
+        "path": "../reference_model/filler_models/filler_model_2.mcnp",
+        "sha256": "4345a8fc0c74b2caba8e2935045c8e604d5cfbb2f45bab5a3bfa03643a9213a7",
+        "bytes": 970
+      },
+      {
+        "name": "filler_model_2",
+        "role": "filler_metadata",
+        "path": "../reference_model/filler_models/filler_model_2.metadata",
+        "sha256": "b803eef17d4f69d864eef13f1a7a34b79a7e353fa2fc0a1f880cbb85b3b6878c",
+        "bytes": 41
+      },
+      {
+        "name": "materials",
+        "role": "materials",
+        "path": "../reference_model/data_cards/materials.mat",
+        "sha256": "5f02e4eabbac5190671f283f4b9d405105c6d7cb9b50ca725ff78a24d7fe790f",
+        "bytes": 239
+      },
+      {
+        "name": "my_transform",
+        "role": "transforms",
+        "path": "../reference_model/data_cards/my_transform.transform",
+        "sha256": "88a349dc66dec3bd59afbe7982304c9251f19acf777242ce89a6304645f0f5ea",
+        "bytes": 37
+      },
+      {
+        "name": "fine_mesh",
+        "role": "tallies",
+        "path": "../reference_model/data_cards/fine_mesh.tally",
+        "sha256": "171b7927849a7a47c38762caf611e9848335dbc5f8b4ecb75bc85c0b75276736",
+        "bytes": 537
+      },
+      {
+        "name": "volumetric_source",
+        "role": "source",
+        "path": "../reference_model/data_cards/volumetric_source.source",
+        "sha256": "f16b3b19d85abe8dbabc32a91aa400a4d0ceb4661a5f78f0da1ecd086d7a0911",
+        "bytes": 167
+      }
+    ],
+    "configuration_chain": [
+      {
+        "path": "valid_configuration.yaml",
+        "values": {
+          "project_roots": [
+            ".."
+          ],
+          "overrides": null,
+          "envelope_structure": "envelope_structure",
+          "source": "volumetric_source",
+          "materials": [
+            "materials"
+          ],
+          "transformations": [
+            "my_transform"
+          ],
+          "tallies": [
+            "fine_mesh"
+          ],
+          "envelopes": {
+            "my_envelope_name_1": "filler_model_1",
+            "envelope_name_2": "filler_model_2"
+          }
+        }
+      }
+    ],
+    "assignment_origins": {
+      "envelope_name_2": "valid_configuration.yaml",
+      "my_envelope_name_1": "valid_configuration.yaml"
+    },
+    "resolved_configuration": {
+      "project_roots": [
+        ".."
+      ],
+      "overrides": null,
+      "envelope_structure": "envelope_structure",
+      "transformations": [
+        "my_transform"
+      ],
+      "materials": [
+        "materials"
+      ],
+      "tallies": [
+        "fine_mesh"
+      ],
+      "source": "volumetric_source",
+      "envelopes": {
+        "my_envelope_name_1": "filler_model_1",
+        "envelope_name_2": "filler_model_2"
+      }
+    },
+    "full_commit": "<full_commit>",
+    "dirty": "<dirty>",
+    "content_fingerprint": "b23239fdb27eff12da68f10f78bc7fa50aecbe58197cf215e6c070d87cb27739",
+    "inputs_unchanged": true,
+    "output": {
+      "path": "assembled.mcnp",
+      "sha256": "<output_sha256>",
+      "bytes": "<output_bytes>"
+    },
+    "data_cards": [
+      {
+        "name": "M14",
+        "category": "Materials",
+        "input": "../reference_model/data_cards/materials.mat",
+        "text": "C Materials\nc Silicon (Pure Si)\nm14 \n     14028.31c   0.922\n     14029.31c   0.047\n     14030.31c   0.031",
+        "referenced_cell_runs": [
+          [
+            1,
+            1
+          ],
+          [
+            1001,
+            1001
+          ],
+          [
+            2001,
+            2001
+          ]
+        ]
+      },
+      {
+        "name": "M24",
+        "category": "Materials",
+        "input": "../reference_model/data_cards/materials.mat",
+        "text": "c\nm24 \n     14028.31c   0.922\n     14029.31c   0.047\n     14030.31c   0.031",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "TR10",
+        "category": "Transforms",
+        "input": "../reference_model/data_cards/my_transform.transform",
+        "text": "C A transform card\nTR10 1.1 2.2 3.3",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "FMESH24:N",
+        "category": "Tallies",
+        "input": "../reference_model/data_cards/fine_mesh.tally",
+        "text": "C Tallies\nFMESH24:N  geom=xyz  origin -2200 -2200 -1800 \n         imesh 2200  iints 176 \n         jmesh 2200  jints 176 \n         kmesh 3200  kints 200\n         emesh 0.1 20",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "FM24",
+        "category": "Tallies",
+        "input": "../reference_model/data_cards/fine_mesh.tally",
+        "text": "FM24 1.5e17",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "FC24",
+        "category": "Tallies",
+        "input": "../reference_model/data_cards/fine_mesh.tally",
+        "text": "FC24 Neutron flux",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "FMESH34:N",
+        "category": "Tallies",
+        "input": "../reference_model/data_cards/fine_mesh.tally",
+        "text": "C\nC Multiplier calculated as:\nC 1.5e17*6.976e-2*(1/6.242e12)*60*60*1000/2.32\nC source intens*atdens*MeVtoJ*stohur*gtokg*1/gramdens\nFMESH34:N  geom=xyz  origin -2200 -2200 -1800 \n         imesh 2200  iints 176 \n         jmesh 2200  jints 176 \n         kmesh 3200  kints 200",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "FM34",
+        "category": "Tallies",
+        "input": "../reference_model/data_cards/fine_mesh.tally",
+        "text": "FM34 2.60131e9 992 1 -4",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "FC34",
+        "category": "Tallies",
+        "input": "../reference_model/data_cards/fine_mesh.tally",
+        "text": "FC34 Neutron dose in silica Gy/h",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "MODE",
+        "category": "Run settings",
+        "input": "../reference_model/data_cards/volumetric_source.source",
+        "text": "C This file includes the sdef and all other parameters like NPS \nmode  n",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "SDEF",
+        "category": "Source",
+        "input": "../reference_model/data_cards/volumetric_source.source",
+        "text": "sdef sur 398 nrm=-1 dir=d1 wgt=132732289.6141",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "SB1",
+        "category": "Source",
+        "input": "../reference_model/data_cards/volumetric_source.source",
+        "text": "sb1    -21  2",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "LOST",
+        "category": "Run settings",
+        "input": "../reference_model/data_cards/volumetric_source.source",
+        "text": "lost 1000",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "PRDMP",
+        "category": "Run settings",
+        "input": "../reference_model/data_cards/volumetric_source.source",
+        "text": "prdmp j 1e7",
+        "referenced_cell_runs": []
+      },
+      {
+        "name": "NPS",
+        "category": "Run settings",
+        "input": "../reference_model/data_cards/volumetric_source.source",
+        "text": "nps  1e9",
+        "referenced_cell_runs": []
+      }
+    ]
+  },
+  "config_path": "<config_path>",
+  "gitronics_version": "<gitronics_version>",
+  "commit_hash": "<commit_hash>",
+  "date_time": "<date_time>",
+  "total_cells": 18,
+  "total_surfaces": 111,
+  "envelope_structure": {
+    "cell_count": 14,
+    "surface_count": 102,
+    "cell_id_runs": [
+      [
+        1,
+        14
+      ]
+    ],
+    "surface_id_runs": [
+      [
+        1,
+        102
+      ]
+    ],
+    "universe_id_runs": [
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  "envelope_entries": [
+    {
+      "envelope_name": "my_envelope_name_1",
+      "status": "filled",
+      "cell_ids": [
+        2,
+        3,
+        4
+      ],
+      "filler_name": "filler_model_1",
+      "universe_id": 121,
+      "transform": "*(10)"
+    },
+    {
+      "envelope_name": "envelope_name_2",
+      "status": "filled",
+      "cell_ids": [
+        5,
+        6,
+        7,
+        8
+      ],
+      "filler_name": "filler_model_2",
+      "universe_id": 125
+    }
+  ],
+  "filler_entries": [
+    {
+      "name": "filler_model_1",
+      "universe_id": 121,
+      "envelope_count": 1,
+      "cell_count": 2,
+      "surface_count": 4,
+      "cell_id_runs": [
+        [
+          1001,
+          1002
+        ]
+      ],
+      "surface_id_runs": [
+        [
+          1001,
+          1004
+        ]
+      ],
+      "materials": [
+        14
+      ],
+      "universe_id_runs": [
+        [
+          121,
+          121
+        ]
+      ],
+      "envelopes": [
+        "my_envelope_name_1"
+      ]
+    },
+    {
+      "name": "filler_model_2",
+      "universe_id": 125,
+      "envelope_count": 1,
+      "cell_count": 2,
+      "surface_count": 5,
+      "cell_id_runs": [
+        [
+          2001,
+          2002
+        ]
+      ],
+      "surface_id_runs": [
+        [
+          2001,
+          2005
+        ]
+      ],
+      "materials": [
+        14
+      ],
+      "universe_id_runs": [
+        [
+          125,
+          125
+        ]
+      ],
+      "envelopes": [
+        "envelope_name_2"
+      ]
+    }
+  ],
+  "materials": [
+    "materials"
+  ],
+  "tallies": [
+    "fine_mesh"
+  ],
+  "transforms": [
+    "my_transform"
+  ],
+  "source": "volumetric_source"
+}

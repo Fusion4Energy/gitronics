@@ -1,8 +1,11 @@
 use crate::{
     build_model,
+    error::GitronicsError,
+    fs_utils::write_output_gitignore,
+    mcnp_io::parse_model_file,
     model_config::ModelConfig,
+    runtime::init_thread_pool,
     types::{EnvelopeName, FileName, FillerMetadata, FillerName},
-    utils::{GitronicsError, parse_model_file},
 };
 use indexmap::IndexMap;
 use log::info;
@@ -15,15 +18,21 @@ use std::{
 };
 
 pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), GitronicsError> {
+    init_thread_pool();
     info!("Reading MCNP model from file: {}", mcnp_input.display());
     let file_name = FileName::new(mcnp_input.display().to_string());
     let model = parse_model_file(mcnp_input, &file_name)?;
 
     // Create the output directory tree.
-    create_dir_all(output_path.join("reference_model/filler_models"))?;
-    create_dir_all(output_path.join("configurations"))?;
-    create_dir_all(output_path.join("output"))?;
-    fs::write(output_path.join("output/.gitignore"), "*\n")?;
+    let filler_models_dir = output_path.join("reference_model/filler_models");
+    create_dir_all(&filler_models_dir)
+        .map_err(|source| GitronicsError::io_path(&filler_models_dir, source))?;
+    let configurations_dir = output_path.join("configurations");
+    create_dir_all(&configurations_dir)
+        .map_err(|source| GitronicsError::io_path(&configurations_dir, source))?;
+    let output_dir = output_path.join("output");
+    create_dir_all(&output_dir).map_err(|source| GitronicsError::io_path(&output_dir, source))?;
+    write_output_gitignore(&output_dir)?;
 
     // Extract every universe into its own filler model file.
     info!("Extracting universes");
@@ -56,10 +65,11 @@ pub fn migrate_model(mcnp_input: &Path, output_path: &Path) -> Result<(), Gitron
 
     // Write every data card of the original model to a single data-cards file.
     let data_cards_file = output_path.join("reference_model/data_cards.source");
-    let mut writer = File::create(&data_cards_file)?;
+    let mut writer = File::create(&data_cards_file)
+        .map_err(|source| GitronicsError::io_path(&data_cards_file, source))?;
     writer.write_all(b"All the data cards of the original model\n")?;
     for card in model.data_cards() {
-        writeln!(writer, "{}", model.card_source(card.card_index).trim_end())?;
+        writeln!(writer, "{}", card.text().trim_end())?;
     }
 
     // Assemble the migrated project to validate the migration round-trips.
@@ -92,10 +102,14 @@ fn write_baseline_config(
     baseline_config.set_default_project_root(Path::new("../reference_model"));
     baseline_config.set_source(FileName::new("data_cards"));
     let config_path = output_path.join("configurations/baseline.yaml");
-    let yaml_content = serde_saphyr::to_string(&baseline_config).map_err(|e| {
-        GitronicsError::YamlSerialize(config_path.display().to_string(), e.to_string())
+    let yaml_content = serde_saphyr::to_string(&baseline_config).map_err(|source| {
+        GitronicsError::YamlSerialize {
+            path: config_path.display().to_string(),
+            source,
+        }
     })?;
-    fs::write(&config_path, yaml_content)?;
+    fs::write(&config_path, yaml_content)
+        .map_err(|source| GitronicsError::io_path(&config_path, source))?;
     Ok(())
 }
 
@@ -107,10 +121,13 @@ fn write_metadata_files(
         let metadata_path = output_path
             .join("reference_model/filler_models")
             .join(format!("{filler_name}.metadata"));
-        let yaml_content = serde_saphyr::to_string(&metadata).map_err(|e| {
-            GitronicsError::YamlSerialize(metadata_path.display().to_string(), e.to_string())
-        })?;
-        fs::write(&metadata_path, yaml_content)?;
+        let yaml_content =
+            serde_saphyr::to_string(&metadata).map_err(|source| GitronicsError::YamlSerialize {
+                path: metadata_path.display().to_string(),
+                source,
+            })?;
+        fs::write(&metadata_path, yaml_content)
+            .map_err(|source| GitronicsError::io_path(&metadata_path, source))?;
     }
     Ok(())
 }
@@ -129,25 +146,22 @@ fn replace_fills_with_placeholders(
     let mut envelopes_metadata: IndexMap<EnvelopeName, Option<FillerName>> = IndexMap::new();
     let mut fillers_metadata: IndexMap<FillerName, FillerMetadata> = IndexMap::new();
 
-    // Snapshot the cells and their fills first; edits (parameter removal + comment
-    // insertion) are token splices that keep card indices stable.
-    let placements: Vec<(usize, i64, migjorn::Fill)> = envelope_structure
-        .cells()
-        .filter_map(|cell| {
-            envelope_structure
-                .cell_fill(cell.card_index)
-                .map(|fill| (cell.card_index, cell.id, fill))
-        })
-        .collect();
-
-    for (card_index, cell_id, fill) in placements {
+    envelope_structure.try_for_each_cell_mut(|cell| -> Result<(), GitronicsError> {
+        let Some(fill) = cell.view().fill() else {
+            return Ok(());
+        };
+        let cell_id = cell.view().id().unwrap_or_default();
         let filler_name = FillerName::new(format!("universe_{}", fill.universe));
         let envelope_name = EnvelopeName::new(format!("envelope_{cell_id}"));
+        // `Fill::transform` is the parenthesised transform exactly as written —
+        // `(30)`, not `30` — so it must not be wrapped in parentheses again.
+        // A starred fill is recorded as `*(30)`, which `build` turns back into
+        // `*fill=<universe> (30)`.
         let transform = fill.transform.map(|inner| {
             if fill.starred {
-                format!("*({inner})")
+                format!("*{inner}")
             } else {
-                format!("({inner})")
+                inner
             }
         });
 
@@ -161,17 +175,19 @@ fn replace_fills_with_placeholders(
             .get_or_insert_with(IndexMap::new)
             .insert(envelope_name, transform);
 
-        envelope_structure
-            .remove_cell_param(card_index, "fill")
+        let slot = cell.slot();
+        cell.model_mut()
+            .remove_cell_param(slot, "fill")
             .map_err(|e| {
                 GitronicsError::ValidationError(format!("Could not remove FILL card: {e}"))
             })?;
-        envelope_structure
-            .append_inline_comment(card_index, &format!("@env:envelope_{cell_id}"))
+        cell.model_mut()
+            .append_cell_comment(slot, &format!("@env:envelope_{cell_id}"))
             .map_err(|e| {
                 GitronicsError::ValidationError(format!("Could not add envelope placeholder: {e}"))
             })?;
-    }
+        Ok(())
+    })?;
 
     Ok((fillers_metadata, envelopes_metadata))
 }

@@ -1,10 +1,20 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::env::current_dir;
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::error::GitronicsError;
+use crate::fs_utils::parent_or_cwd;
+use crate::provenance::SourceFile;
 use crate::types::{EnvelopeName, FileName, FillerName};
-use crate::utils::GitronicsError;
+
+pub(crate) struct ConfigurationSource {
+    pub source: SourceFile,
+    pub values: serde_json::Value,
+}
 
 /// Configuration for a neutronics model, typically loaded from a YAML file.
 ///
@@ -19,9 +29,23 @@ pub struct ModelConfig {
     transformations: Option<Vec<FileName>>,
     materials: Option<Vec<FileName>>,
     tallies: Option<Vec<FileName>>,
-    source: Option<FileName>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_source",
+        skip_serializing_if = "Option::is_none"
+    )]
+    source: Option<Option<FileName>>,
     #[serde(default)]
     envelopes: IndexMap<EnvelopeName, Option<FillerName>>,
+}
+
+fn deserialize_source<'de, Deserializer>(
+    deserializer: Deserializer,
+) -> Result<Option<Option<FileName>>, Deserializer::Error>
+where
+    Deserializer: serde::Deserializer<'de>,
+{
+    Option::<FileName>::deserialize(deserializer).map(Some)
 }
 
 impl ModelConfig {
@@ -38,14 +62,79 @@ impl ModelConfig {
     }
 
     /// Parses a model configuration from a YAML file.
+    #[cfg(test)]
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, GitronicsError> {
         let yaml_content =
             fs::read_to_string(&path).map_err(|source| GitronicsError::io_path(&path, source))?;
-        let mut config: ModelConfig = serde_saphyr::from_str(&yaml_content).map_err(|e| {
-            GitronicsError::YamlParse(path.as_ref().to_string_lossy().to_string(), e.to_string())
-        })?;
-        config.resolve_project_roots_relative_to(path.as_ref());
+        Self::from_text(&yaml_content, path.as_ref())
+    }
+
+    fn from_text(yaml_content: &str, path: &Path) -> Result<Self, GitronicsError> {
+        let mut config: ModelConfig =
+            serde_saphyr::from_str(yaml_content).map_err(|source| GitronicsError::YamlParse {
+                path: path.display().to_string(),
+                source: Box::new(source),
+            })?;
+        config.resolve_project_roots_relative_to(path);
         Ok(config)
+    }
+
+    /// Loads a model configuration by path.
+    ///
+    /// If the configuration specifies an `overrides` field, recursively loads
+    /// the base configuration and merges them. Detects and prevents circular
+    /// override chains.
+    #[cfg(test)]
+    pub fn load<P: AsRef<Path>>(config_path: P) -> Result<Self, GitronicsError> {
+        Self::load_with_sources(config_path).map(|(config, _)| config)
+    }
+
+    pub(crate) fn load_with_sources<P: AsRef<Path>>(
+        config_path: P,
+    ) -> Result<(Self, Vec<ConfigurationSource>), GitronicsError> {
+        let config_path = if config_path.as_ref().is_absolute() {
+            config_path.as_ref().to_path_buf()
+        } else {
+            current_dir()?.join(config_path)
+        };
+        let config_path = dunce::canonicalize(&config_path)
+            .map_err(|source| GitronicsError::io_path(&config_path, source))?;
+        let mut sources = Vec::new();
+        let config = Self::load_inner(&config_path, &mut HashSet::new(), &mut sources)?;
+        Ok((config, sources))
+    }
+
+    fn load_inner(
+        config_path: &Path,
+        visited: &mut HashSet<PathBuf>,
+        sources: &mut Vec<ConfigurationSource>,
+    ) -> Result<Self, GitronicsError> {
+        let config_path = config_path.to_path_buf();
+        if !visited.insert(config_path.clone()) {
+            return Err(GitronicsError::ConfigCycle(config_path));
+        }
+        let (text, source) = SourceFile::read(&config_path)?;
+        let mut config = Self::from_text(&text, &config_path)?;
+        let values = serde_saphyr::from_str(&text).map_err(|source| GitronicsError::YamlParse {
+            path: config_path.display().to_string(),
+            source: Box::new(source),
+        })?;
+        sources.push(ConfigurationSource { source, values });
+        // If there is no `overrides` key, apply default project root and return.
+        let Some(base_path) = config.overrides() else {
+            config.set_default_project_root(parent_or_cwd(&config_path));
+            return Ok(config);
+        };
+        let base_path = if base_path.is_absolute() {
+            base_path.to_path_buf()
+        } else {
+            parent_or_cwd(&config_path).join(base_path)
+        };
+        let base_path = dunce::canonicalize(&base_path)
+            .map_err(|source| GitronicsError::io_path(&base_path, source))?;
+        // Resolve the base config recursively so the full chain is applied.
+        let base = Self::load_inner(&base_path, visited, sources)?;
+        Ok(config.merge(base))
     }
 
     /// Merges this configuration (override) on top of a base configuration.
@@ -71,7 +160,7 @@ impl ModelConfig {
         let Some(roots) = &self.project_roots else {
             return; // leave None so a base config's project_roots can be used during merge
         };
-        let config_dir = config_path.parent().unwrap_or(Path::new("."));
+        let config_dir = parent_or_cwd(config_path);
         let resolved = roots
             .iter()
             .map(|root| {
@@ -95,8 +184,8 @@ impl ModelConfig {
         self.project_roots.as_deref().unwrap_or_default()
     }
 
-    pub fn overrides(&self) -> Option<&PathBuf> {
-        self.overrides.as_ref()
+    pub fn overrides(&self) -> Option<&Path> {
+        self.overrides.as_deref()
     }
 
     pub fn envelope_structure(&self) -> Option<&FileName> {
@@ -116,11 +205,11 @@ impl ModelConfig {
     }
 
     pub fn source(&self) -> Option<&FileName> {
-        self.source.as_ref()
+        self.source.as_ref().and_then(Option::as_ref)
     }
 
     pub fn set_source(&mut self, source: FileName) {
-        self.source = Some(source);
+        self.source = Some(Some(source));
     }
 
     /// Returns the envelope-to-filler mapping.
@@ -175,7 +264,7 @@ envelopes:
             project_roots: Some(vec![PathBuf::from("base_root")]),
             overrides: None,
             envelope_structure: Some(FileName::new("base_structure")),
-            source: Some(FileName::new("base_source")),
+            source: Some(Some(FileName::new("base_source"))),
             materials: Some(vec![FileName::new("base_material")]),
             transformations: None,
             tallies: None,
@@ -185,7 +274,7 @@ envelopes:
             project_roots: None,
             overrides: Some("base".into()),
             envelope_structure: None,
-            source: Some(FileName::new("override_source")),
+            source: Some(Some(FileName::new("override_source"))),
             materials: Some(vec![FileName::new("override_material")]),
             transformations: None,
             tallies: None,
@@ -207,6 +296,163 @@ envelopes:
         assert_eq!(
             envelopes[&EnvelopeName::new("env2")],
             Some(FillerName::new("override_env2"))
+        );
+    }
+
+    #[test]
+    fn source_inheritance_distinguishes_omitted_null_and_assigned() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("base.yaml"), "source: base_source\n").unwrap();
+
+        for (source_yaml, expected) in [
+            ("", Some("base_source")),
+            ("source: null\n", None),
+            ("source:\n", None),
+            ("source: replacement\n", Some("replacement")),
+        ] {
+            let config_path = dir.path().join("override.yaml");
+            fs::write(&config_path, format!("overrides: base.yaml\n{source_yaml}")).unwrap();
+
+            let config = ModelConfig::load(&config_path).unwrap();
+
+            assert_eq!(config.source().map(|name| &**name), expected);
+        }
+    }
+
+    #[test]
+    fn cleared_source_stays_cleared_through_override_chain() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("base.yaml"), "source: base_source\n").unwrap();
+        fs::write(
+            dir.path().join("mid.yaml"),
+            "overrides: base.yaml\nsource: null\n",
+        )
+        .unwrap();
+        let top_path = dir.path().join("top.yaml");
+        fs::write(&top_path, "overrides: mid.yaml\n").unwrap();
+
+        assert!(ModelConfig::load(&top_path).unwrap().source().is_none());
+
+        fs::write(&top_path, "overrides: mid.yaml\nsource: replacement\n").unwrap();
+        assert_eq!(
+            ModelConfig::load(&top_path).unwrap().source(),
+            Some(&FileName::new("replacement"))
+        );
+    }
+
+    #[test]
+    fn source_states_survive_yaml_round_trip() {
+        for yaml in ["{}", "source: null", "source: named_source"] {
+            let config: ModelConfig = serde_saphyr::from_str(yaml).unwrap();
+            let serialized = serde_saphyr::to_string(&config).unwrap();
+            let restored: ModelConfig = serde_saphyr::from_str(&serialized).unwrap();
+
+            assert_eq!(restored, config, "source state changed for {yaml}");
+        }
+    }
+
+    #[test]
+    fn test_load_config_override_chain() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("base.yaml"),
+            r#"
+envelope_structure: base_structure
+source: base_source
+envelopes:
+  env1: base_env1
+"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("mid.yaml"),
+            r#"
+overrides: ./base.yaml
+source: mid_source
+envelopes:
+  env2: mid_env2
+"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("top.yaml"),
+            r#"
+overrides: ./mid.yaml
+envelopes:
+  env3: top_env3
+"#,
+        )
+        .unwrap();
+
+        let config = ModelConfig::load(dir.path().join("top.yaml")).unwrap();
+        assert_eq!(
+            config.envelope_structure().unwrap(),
+            &FileName::new("base_structure")
+        );
+        assert_eq!(config.source().unwrap(), &FileName::new("mid_source"));
+        let envelopes = config.envelopes();
+
+        assert_eq!(
+            envelopes[&EnvelopeName::new("env1")].as_ref().unwrap(),
+            &FillerName::new("base_env1")
+        );
+        assert_eq!(
+            envelopes[&EnvelopeName::new("env2")].as_ref().unwrap(),
+            &FillerName::new("mid_env2")
+        );
+        assert_eq!(
+            envelopes[&EnvelopeName::new("env3")].as_ref().unwrap(),
+            &FillerName::new("top_env3")
+        );
+    }
+
+    #[test]
+    fn test_project_roots_inherited_from_base() {
+        // Regression test: an override config without project_roots should inherit
+        // the base config's resolved project_roots, not default to its own directory.
+        let dir = tempdir().unwrap();
+        let models_dir = dir.path().join("models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+
+        fs::write(
+            dir.path().join("base.yaml"),
+            "project_roots: [./models]\nenvelope_structure: my_structure\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("override.yaml"),
+            "overrides: ./base.yaml\nsource: my_source\n",
+        )
+        .unwrap();
+
+        let config = ModelConfig::load(dir.path().join("override.yaml")).unwrap();
+
+        // Canonicalize models_dir so it resolves symlinks (like /var -> /private/var on macOS)
+        let expected_models_dir = models_dir.canonicalize().unwrap();
+
+        // project_roots must point to the models subdirectory resolved from base.yaml,
+        // not to dir itself (which would happen if override.yaml's directory were used).
+        assert_eq!(config.project_roots(), &[expected_models_dir]);
+    }
+
+    #[test]
+    fn test_load_config_cycle_detected() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("a.yaml"),
+            "overrides: ./b.yaml\nenvelopes:\n  e: v\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("b.yaml"),
+            "overrides: ./a.yaml\nenvelopes:\n  e: v\n",
+        )
+        .unwrap();
+
+        let err = ModelConfig::load(dir.path().join("a.yaml")).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Cycle detected in configuration overrides")
         );
     }
 }
