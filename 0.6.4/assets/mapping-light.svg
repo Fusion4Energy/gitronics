@@ -1,0 +1,59 @@
+<svg width="100%" viewBox="0 0 820 348" role="img"
+     aria-label="A configuration file maps envelope cell names to filler models: baseline.yaml assigns universe_101 and universe_103 into the matching envelope cells of envelope_structure.mcnp, while a cell mapped to null is left as void."
+     xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFD173"/>
+      <stop offset="100%" stop-color="#F5A623"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="820" height="348" rx="18" fill="#FFFFFF"/>
+  <rect x="1" y="1" width="818" height="346" rx="17" fill="none" stroke="#E2E6EC" stroke-width="1.5"/>
+
+  <!-- LEFT: configuration -->
+  <rect x="20" y="40" width="360" height="284" rx="14" fill="#F5F7FA" stroke="#D7DDE6"/>
+  <circle cx="44" cy="68" r="5" fill="#F5A623"/>
+  <text x="60" y="74" fill="#6B7684" font-size="15" font-weight="600">baseline.yaml</text>
+  <line x1="36" y1="88" x2="364" y2="88" stroke="#E4E9F0"/>
+
+  <text x="44" y="122" font-size="17" fill="#0E8C7C">envelopes:</text>
+  <text x="44" y="156" font-size="17"><tspan fill="#2B3440">&#160;&#160;blanket_r1_c01</tspan><tspan fill="#8A93A0">: </tspan><tspan fill="#B26A00" font-weight="700">universe_101</tspan></text>
+  <text x="44" y="222" font-size="17"><tspan fill="#2B3440">&#160;&#160;blanket_r1_c02</tspan><tspan fill="#8A93A0">: </tspan><tspan fill="#B26A00" font-weight="700">universe_103</tspan></text>
+  <text x="44" y="288" font-size="17"><tspan fill="#2B3440">&#160;&#160;divertor_18</tspan><tspan fill="#8A93A0">: &#160;&#160;&#160;</tspan><tspan fill="#8A93A0">null</tspan></text>
+
+  <!-- connectors -->
+  <g fill="none" stroke-width="2.5">
+    <path d="M 384 150 L 452 150" stroke="#F5A623"/>
+    <path d="M 384 216 L 452 216" stroke="#F5A623"/>
+    <path d="M 384 282 L 452 282" stroke="#B7BEC9"/>
+  </g>
+  <g>
+    <path d="M 446 145 L 456 150 L 446 155 Z" fill="#F5A623"/>
+    <path d="M 446 211 L 456 216 L 446 221 Z" fill="#F5A623"/>
+    <path d="M 446 277 L 456 282 L 446 287 Z" fill="#B7BEC9"/>
+  </g>
+
+  <!-- RIGHT: envelope cells -->
+  <rect x="460" y="40" width="340" height="284" rx="14" fill="#F5F7FA" stroke="#D7DDE6"/>
+  <circle cx="484" cy="68" r="5" fill="#F5A623"/>
+  <text x="500" y="74" fill="#6B7684" font-size="15" font-weight="600">envelope_structure.mcnp</text>
+  <line x1="476" y1="88" x2="784" y2="88" stroke="#E4E9F0"/>
+
+  <!-- cell 1 -->
+  <rect x="476" y="123" width="308" height="54" rx="10" fill="#EDF1F6" stroke="#DCE3EC"/>
+  <text x="494" y="156" font-size="15" fill="#6B7684">blanket_r1_c01</text>
+  <rect x="636" y="136" width="132" height="28" rx="8" fill="url(#amber)"/>
+  <text x="702" y="155" font-size="14" font-weight="700" fill="#20160A" text-anchor="middle">universe_101</text>
+
+  <!-- cell 2 -->
+  <rect x="476" y="189" width="308" height="54" rx="10" fill="#EDF1F6" stroke="#DCE3EC"/>
+  <text x="494" y="222" font-size="15" fill="#6B7684">blanket_r1_c02</text>
+  <rect x="636" y="202" width="132" height="28" rx="8" fill="url(#amber)"/>
+  <text x="702" y="221" font-size="14" font-weight="700" fill="#20160A" text-anchor="middle">universe_103</text>
+
+  <!-- cell 3: void -->
+  <rect x="476" y="255" width="308" height="54" rx="10" fill="#F1F4F8" stroke="#C7CFDA" stroke-dasharray="6 5"/>
+  <text x="494" y="288" font-size="15" fill="#9AA3B0">divertor_18</text>
+  <text x="702" y="288" font-size="14" fill="#9AA3B0" text-anchor="middle">void &#8212; empty</text>
+</svg>

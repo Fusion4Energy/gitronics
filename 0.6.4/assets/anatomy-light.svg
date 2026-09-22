@@ -1,0 +1,56 @@
+<svg width="100%" viewBox="0 0 820 472" role="img"
+     aria-label="How an envelope cell is filled: an envelope cell in envelope_structure.mcnp carries a $ @env:blanket_01 placeholder, and a filler model defines a universe with U=101. During gitronics build the placeholder becomes a FILL=101 card in assembled.mcnp, with the transformation taken from the filler's metadata."
+     xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFD173"/>
+      <stop offset="100%" stop-color="#F5A623"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="820" height="472" rx="18" fill="#FFFFFF"/>
+  <rect x="1" y="1" width="818" height="470" rx="17" fill="none" stroke="#E2E6EC" stroke-width="1.5"/>
+
+  <!-- eyebrows -->
+  <text x="24" y="42" fill="#6B7684" font-size="12" font-weight="700" letter-spacing="1">ENVELOPE CELL &#183; placeholder</text>
+  <text x="424" y="42" fill="#6B7684" font-size="12" font-weight="700" letter-spacing="1">FILLER MODEL &#183; universe</text>
+
+  <!-- envelope card -->
+  <rect x="24" y="54" width="372" height="128" rx="12" fill="#F5F7FA" stroke="#D7DDE6"/>
+  <circle cx="48" cy="82" r="5" fill="#F5A623"/>
+  <text x="64" y="87" fill="#6B7684" font-size="14">envelope_structure.mcnp</text>
+  <line x1="40" y1="100" x2="380" y2="100" stroke="#E4E9F0"/>
+  <text x="44" y="130" font-size="15" fill="#2B3440">21055 0  1 -2 8 -7 -6 -5</text>
+  <text x="44" y="158" font-size="15"><tspan fill="#8A93A0">&#160;&#160;&#160;&#160;&#160;imp:n=1&#160;&#160;</tspan><tspan fill="#B26A00" font-weight="700">$ @env:blanket_01</tspan></text>
+
+  <!-- filler card -->
+  <rect x="424" y="54" width="372" height="128" rx="12" fill="#F5F7FA" stroke="#D7DDE6"/>
+  <circle cx="448" cy="82" r="5" fill="#0E8C7C"/>
+  <text x="464" y="87" fill="#6B7684" font-size="14">blanket_v3.mcnp</text>
+  <line x1="440" y1="100" x2="780" y2="100" stroke="#E4E9F0"/>
+  <text x="444" y="130" font-size="15" fill="#2B3440">1001 14 -7.89  1001 -1002</text>
+  <text x="444" y="158" font-size="15"><tspan fill="#8A93A0">&#160;&#160;&#160;&#160;&#160;imp:n=1&#160;&#160;</tspan><tspan fill="#0E8C7C" font-weight="700">U=101</tspan></text>
+
+  <!-- merge lines into the build pill -->
+  <g fill="none" stroke="#A8B0BC" stroke-width="2.4">
+    <path d="M 210 182 C 210 205 302 210 344 210"/>
+    <path d="M 610 182 C 610 205 518 210 476 210"/>
+  </g>
+  <rect x="345" y="194" width="130" height="32" rx="16" fill="url(#amber)"/>
+  <text x="410" y="215" fill="#20160A" font-size="13" font-weight="700" text-anchor="middle">gitronics build</text>
+
+  <!-- single arrow down into the assembled card -->
+  <line x1="410" y1="226" x2="410" y2="274" stroke="#A8B0BC" stroke-width="2.4"/>
+  <path d="M 403 270 L 410 282 L 417 270 Z" fill="#A8B0BC"/>
+
+  <!-- assembled card (lowered for arrowhead clearance) -->
+  <rect x="70" y="288" width="680" height="128" rx="12" fill="#FFF8EC" stroke="#E7C98A"/>
+  <circle cx="94" cy="316" r="5" fill="#F5A623"/>
+  <text x="110" y="321" fill="#6B7684" font-size="14">assembled.mcnp</text>
+  <line x1="86" y1="334" x2="734" y2="334" stroke="#EFE0C0"/>
+  <text x="94" y="364" font-size="15" fill="#2B3440">21055 0  1 -2 8 -7 -6 -5</text>
+  <text x="94" y="392" font-size="15"><tspan fill="#8A93A0">&#160;&#160;&#160;&#160;&#160;imp:n=1&#160;&#160;</tspan><tspan fill="#B26A00" font-weight="700">FILL=101</tspan><tspan fill="#8A93A0" font-size="13">  (transform from .metadata)</tspan></text>
+
+  <!-- caption -->
+  <text x="410" y="450" fill="#8A93A0" font-size="13" text-anchor="middle">Gitronics replaces the placeholder with a FILL card during build &#8212; the geometry files stay independent.</text>
+</svg>

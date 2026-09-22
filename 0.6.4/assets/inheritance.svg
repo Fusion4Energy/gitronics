@@ -1,0 +1,69 @@
+<svg width="100%" viewBox="0 0 820 492" role="img"
+     aria-label="Configuration inheritance: a child configuration with 'overrides: baseline.yaml' inherits scalar fields from the parent, replaces the fields it redefines, and merges the envelopes map entry by entry. In the effective model, inherited values are shown muted and overridden values in amber."
+     xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFD173"/>
+      <stop offset="100%" stop-color="#F5A623"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="820" height="492" rx="18" fill="#0B0E15"/>
+  <rect x="1" y="1" width="818" height="490" rx="17" fill="none" stroke="#1C2634" stroke-width="1.5"/>
+
+  <!-- parent -->
+  <rect x="24" y="48" width="372" height="190" rx="12" fill="#0E1622" stroke="#293646"/>
+  <circle cx="48" cy="76" r="5" fill="#F5A623"/>
+  <text x="64" y="81" fill="#8A97A8" font-size="14">baseline.yaml &#183; parent</text>
+  <line x1="40" y1="94" x2="380" y2="94" stroke="#1E2836"/>
+  <g font-size="14" fill="#C7D0DD">
+    <text x="44" y="124"><tspan fill="#8FE7DA">source:</tspan> dt_plasma</text>
+    <text x="44" y="150"><tspan fill="#8FE7DA">materials:</tspan> [steel]</text>
+    <text x="44" y="176" fill="#8FE7DA">envelopes:</text>
+    <text x="44" y="202">&#160;&#160;blk_01: v1</text>
+    <text x="44" y="228">&#160;&#160;blk_02: v1</text>
+  </g>
+
+  <!-- child -->
+  <rect x="424" y="48" width="372" height="190" rx="12" fill="#0E1622" stroke="#293646"/>
+  <circle cx="448" cy="76" r="5" fill="#38D9C0"/>
+  <text x="464" y="81" fill="#8A97A8" font-size="14">sector_variant.yaml &#183; child</text>
+  <line x1="440" y1="94" x2="780" y2="94" stroke="#1E2836"/>
+  <g font-size="14" fill="#C7D0DD">
+    <text x="444" y="124"><tspan fill="#8FE7DA">overrides:</tspan> baseline.yaml</text>
+    <text x="444" y="150"><tspan fill="#8FE7DA">materials:</tspan> [steel_v2]</text>
+    <text x="444" y="176" fill="#8FE7DA">envelopes:</text>
+    <text x="444" y="202">&#160;&#160;blk_02: v3</text>
+  </g>
+
+  <!-- merge lines converging, then a single arrow into the effective card -->
+  <g fill="none" stroke="#4A5768" stroke-width="2.4">
+    <path d="M 210 238 C 210 262 360 266 410 266"/>
+    <path d="M 610 238 C 610 262 460 266 410 266"/>
+  </g>
+  <line x1="410" y1="266" x2="410" y2="290" stroke="#4A5768" stroke-width="2.4"/>
+  <path d="M 403 286 L 410 298 L 417 286 Z" fill="#4A5768"/>
+
+  <!-- effective model (lowered for arrowhead clearance) -->
+  <rect x="70" y="304" width="680" height="150" rx="12" fill="#100E08" stroke="#4A3B18"/>
+  <circle cx="94" cy="332" r="5" fill="#F5A623"/>
+  <text x="110" y="337" fill="#8A97A8" font-size="14">effective model</text>
+  <line x1="86" y1="350" x2="734" y2="350" stroke="#241d0e"/>
+  <g font-size="14">
+    <text x="94" y="378"><tspan fill="#8FE7DA">source:</tspan> <tspan fill="#7C8698">dt_plasma</tspan></text>
+    <text x="94" y="404"><tspan fill="#8FE7DA">materials:</tspan> <tspan fill="#FFC24B" font-weight="700">[steel_v2]</tspan></text>
+    <text x="440" y="378" fill="#8FE7DA">envelopes:</text>
+    <text x="440" y="404"><tspan fill="#7C8698">&#160;&#160;blk_01: v1</tspan></text>
+    <text x="440" y="430"><tspan fill="#FFC24B" font-weight="700">&#160;&#160;blk_02: v3</tspan></text>
+  </g>
+
+  <!-- legend -->
+  <g font-size="13">
+    <rect x="200" y="470" width="14" height="14" rx="3" fill="#7C8698"/>
+    <text x="222" y="482" fill="#8A97A8">inherited</text>
+    <rect x="330" y="470" width="14" height="14" rx="3" fill="#F5A623"/>
+    <text x="352" y="482" fill="#8A97A8">overridden</text>
+    <rect x="470" y="470" width="14" height="14" rx="3" fill="#38D9C0"/>
+    <text x="492" y="482" fill="#8A97A8">added in child</text>
+  </g>
+</svg>

@@ -1,0 +1,61 @@
+<svg width="100%" viewBox="0 0 820 600" role="img"
+     aria-label="Gitronics build pipeline: modular components (envelope structure, filler models, data cards) and a YAML configuration are combined by gitronics build into a single assembled.mcnp deck plus an HTML build report."
+     xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFD173"/>
+      <stop offset="100%" stop-color="#F5A623"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="820" height="600" rx="20" fill="#0B0E15"/>
+  <rect x="1" y="1" width="818" height="598" rx="19" fill="none" stroke="#1C2634" stroke-width="1.5"/>
+
+  <!-- Stage 1: modular components -->
+  <rect x="70" y="34" width="680" height="204" rx="14" fill="#0E1622" stroke="#293646"/>
+  <text x="96" y="70" fill="#8A97A8" font-size="15" font-weight="700" letter-spacing="2">MODULAR COMPONENTS</text>
+  <g font-size="17">
+    <rect x="96" y="86" width="628" height="40" rx="8" fill="#131C2A" stroke="#22303F"/>
+    <circle cx="122" cy="106" r="5" fill="#F5A623"/>
+    <text x="142" y="112" fill="#D6DEEA">envelope_structure.mcnp</text>
+    <rect x="96" y="134" width="628" height="40" rx="8" fill="#131C2A" stroke="#22303F"/>
+    <circle cx="122" cy="154" r="5" fill="#F5A623"/>
+    <text x="142" y="160" fill="#D6DEEA">filler_models/*.mcnp</text>
+    <rect x="96" y="182" width="628" height="40" rx="8" fill="#131C2A" stroke="#22303F"/>
+    <circle cx="122" cy="202" r="5" fill="#38D9C0"/>
+    <text x="142" y="208" fill="#D6DEEA">data_cards/ &#183; materials &#183; source &#183; tallies</text>
+  </g>
+
+  <!-- arrow 1 -->
+  <line x1="410" y1="238" x2="410" y2="262" stroke="#4A5768" stroke-width="2.6"/>
+  <path d="M 403 258 L 410 268 L 417 258 Z" fill="#4A5768"/>
+
+  <!-- Stage 2: configuration -->
+  <rect x="220" y="268" width="380" height="62" rx="12" fill="#101C1A" stroke="#2E4A46"/>
+  <text x="410" y="306" fill="#8FE7DA" font-size="17" text-anchor="middle">configurations/baseline.yaml</text>
+
+  <!-- arrow 2 -->
+  <line x1="410" y1="330" x2="410" y2="354" stroke="#4A5768" stroke-width="2.6"/>
+  <path d="M 403 350 L 410 360 L 417 350 Z" fill="#4A5768"/>
+
+  <!-- Stage 3: build engine -->
+  <rect x="290" y="360" width="240" height="78" rx="16" fill="url(#amber)"/>
+  <text x="410" y="407" fill="#20160A" font-size="24" font-weight="800" text-anchor="middle">gitronics build</text>
+
+  <!-- split arrows to outputs -->
+  <line x1="410" y1="438" x2="410" y2="460" stroke="#4A5768" stroke-width="2.6"/>
+  <line x1="245" y1="460" x2="575" y2="460" stroke="#4A5768" stroke-width="2.6"/>
+  <line x1="245" y1="460" x2="245" y2="478" stroke="#4A5768" stroke-width="2.6"/>
+  <line x1="575" y1="460" x2="575" y2="478" stroke="#4A5768" stroke-width="2.6"/>
+  <path d="M 238 474 L 245 484 L 252 474 Z" fill="#4A5768"/>
+  <path d="M 568 474 L 575 484 L 582 474 Z" fill="#4A5768"/>
+
+  <!-- Stage 4: outputs -->
+  <rect x="90" y="486" width="310" height="68" rx="12" fill="#12100A" stroke="#4A3B18"/>
+  <text x="245" y="526" fill="#FFC24B" font-size="18" font-weight="700" text-anchor="middle">assembled.mcnp</text>
+  <rect x="420" y="486" width="310" height="68" rx="12" fill="#0E1622" stroke="#293646"/>
+  <text x="575" y="526" fill="#B9C3D1" font-size="18" text-anchor="middle">build_report.html</text>
+
+  <!-- footer -->
+  <text x="410" y="584" fill="#5C6675" font-size="14" text-anchor="middle">Every build stamps the git commit hash and timestamp into the model header.</text>
+</svg>
