@@ -54,7 +54,7 @@ This is a design choice to avoid duplication of information and to keep the geom
     ```
 
 !!! warning "Title card"
-    If the title card starts with a `c` or `C`, it will be considered a header comment and be included in the `assembled.mcnp` file. The only non-comment title line that will be preserved in the `assembled.mcnp` file is that of the envelope structure file.
+    A geometry file's first line is always its title card, whatever it looks like — even one starting with `c` or `C`. When the model is built, only the envelope structure's title is kept in the `assembled.mcnp` file; the title of every filler model is always dropped, comment-look or not.
 
 !!! tip "Data cards in geometry files"
     A geometry file may contain data cards, making it a complete and valid MCNP input file by itself. While Gitronics will ignore these data cards, they can be useful for testing the geometry without the need to create a configuration file. It can be especially useful to have a stochastic volume calculation source in the geometry to check for lost particles and calculate the volumes of the cells in a filler model.
