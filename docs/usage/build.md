@@ -96,15 +96,6 @@ defaults such as `E0` remain separate, as do non-tally cards with the same numer
 ID. Diff combines related tally members across files while preserving each
 member's baseline and current file provenance.
 
-### Viewer development
-
-Run `npm ci`, `npm test`, `npm run check`, and `npm run lint` from `report/`.
-The pinned `diff` development dependency supplies the offline jsdiff asset. After
-updating that dependency, run `npm run vendor:diff` and commit the generated
-`report/vendor/diff.js` with the package manifests. The generated asset includes
-its BSD license and is embedded by both Rust and the JavaScript test harness.
-Normal Rust builds do not require Node.js or an asset build step.
-
 ## How files are located
 
 Gitronics recursively searches all directories listed in `project_roots` (defined in the configuration) for files referenced by stem name. 

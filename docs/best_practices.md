@@ -23,7 +23,7 @@ It is recommended to place the envelope name place holder at the end of the cell
             $ @env:toroidal_field_coil_18
     ```
 
-!!! Warning "Space for the `FILL` card"
+!!! warning "Space for the `FILL` card"
     The `FILL` card will be inserted by Gitronics right after the last cell parameter of the cell definition (after the `imp:p=1.0` in the example above). If there is not space to the right of the last parameter, the newly added `FILL` card may break the maximum line length of MCNP. To avoid this, it is recommended to leave some space after the last parameter of the cell definition before the envelope name placeholder as in the example above.
 
 ## Do not commit large files
@@ -38,7 +38,7 @@ Committing large files to the repository will make it slower to clone and checko
     You can ignore specific files by name or extension. 
     For example, to ignore all `.mcnp` files of a folder, you can add the line `*.mcnp` to the `.gitignore` file.
 
-!!! Warning "Do not commit binary files"
+!!! warning "Do not commit binary files"
     It is considered a bad practice to commit binary files to the repository (Excel files, runtpe, etc). 
     Binary files cannot be diffed, and they will make the repository size grow unnecessarily.
     Even if the files are text-based, do not commit large files like the `output` file of an MCNP run.
@@ -65,6 +65,23 @@ Make sure that the level 1 universe have the `FILL` cards correctly defined for 
 
 Add a field like `reference` or similar to the `.metadata` files of each filler model to track the origin of the model. 
 This is useful for future reference and for understanding the provenance of the model.
+
+## Use envelope metadata for report grouping
+
+The [envelope structure's `.metadata` sidecar](getting_started/file_types.md#envelope-structure-metadata) can tag each envelope with arbitrary fields, keyed under a top-level `envelopes:` map. These fields are not read by the `build` command itself, but they are picked up by the HTML build report:
+
+- A `description` field (or `desc`, `title`, `name`, `label`) is shown directly next to the envelope everywhere it appears in the report.
+- Any field that takes a handful of different values across envelopes — present on some but not all of them, and with no more than 32 distinct values — is offered as a "group by" option in the Explorer and Coverage Map tabs, and may be picked automatically as the default grouping.
+
+A good practice is to tag every envelope with one or two consistent fields that describe how you think about the model, such as `sector`, `system`, or `zone`. Consistent tags make it much easier to navigate the report for a large model, and cost nothing at build time since they are ignored by the build itself.
+
+```yaml
+envelopes:
+  toroidal_field_coil_18:
+    description: "TF coil 18"
+    system: "magnets"
+    sector: 3
+```
 
 ## Tag releases
 
