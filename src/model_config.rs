@@ -427,8 +427,9 @@ envelopes:
 
         let config = ModelConfig::load(dir.path().join("override.yaml")).unwrap();
 
-        // Canonicalize models_dir so it resolves symlinks (like /var -> /private/var on macOS)
-        let expected_models_dir = models_dir.canonicalize().unwrap();
+        // Canonicalize the way ModelConfig::load does: resolves symlinks (like
+        // /var -> /private/var on macOS) without the `\\?\` prefix std adds on Windows.
+        let expected_models_dir = dunce::canonicalize(&models_dir).unwrap();
 
         // project_roots must point to the models subdirectory resolved from base.yaml,
         // not to dir itself (which would happen if override.yaml's directory were used).
