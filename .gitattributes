@@ -1,0 +1,4 @@
+# Keep LF everywhere: report assets are embedded via include_str! and compared
+# byte-for-byte in tests, which breaks under core.autocrlf on Windows.
+* text=auto eol=lf
+*.pptx binary

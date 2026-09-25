@@ -17,7 +17,7 @@ This is a design choice to avoid duplication of information and to keep the geom
 
 ??? note "Geometry file example"
     ```
-    C Filler model 121                         │ ← Title
+    C Filler model 121                         │ ← Title (dropped, see below)
     1001   14    -7.89  1001 -1002 1004 -1003  │ ← Cells section
                IMP:N=1   IMP:P=1  U=121        │
     1002     0      1001 -1002                 │
@@ -54,7 +54,7 @@ This is a design choice to avoid duplication of information and to keep the geom
     ```
 
 !!! warning "Title card"
-    If the title card starts with a `c` or `C`, it will be considered a header comment and be included in the `assembled.mcnp` file. The only non-comment title line that will be preserved in the `assembled.mcnp` file is that of the envelope structure file.
+    A geometry file's first line is always its title card, whatever it looks like — even one starting with `c` or `C`. When the model is built, only the envelope structure's title is kept in the `assembled.mcnp` file; the title of every filler model is always dropped, comment-look or not.
 
 !!! tip "Data cards in geometry files"
     A geometry file may contain data cards, making it a complete and valid MCNP input file by itself. While Gitronics will ignore these data cards, they can be useful for testing the geometry without the need to create a configuration file. It can be especially useful to have a stochastic volume calculation source in the geometry to check for lost particles and calculate the volumes of the cells in a filler model.
@@ -94,7 +94,7 @@ Any content after that will be ignored.
 ??? note "Data card file example"
     ```
     Tallies for radmaps                     │ ← Title (ignored)
-    C These talllies will produce radmaps   │ ← Useful header comment 
+    C These tallies will produce radmaps    │ ← Useful header comment 
     C  throughout the reactor geometry      │   (included)
     FMESH24:N  geom=xyz                     | ← Data cards section
              origin -2200 -2200 -1800       |
@@ -154,3 +154,23 @@ It is a design choice to put the responsibility of selecting the correct transfo
 An envelope should be agnostic of the filler models that may be applied to it, which could be developed independently by different teams.
 When preparing a new filler model, the developer has to specify in the metadata how that filler model should be used when applied to each potential envelope cell.
 If a filler model has to be applied to a new envelope cell, this system will require the explicit consideration of the developer/integrator to add the new envelope name to the metadata of the filler model, which is a good practice to avoid mistakes.
+
+### Envelope structure metadata
+
+The `.metadata` sidecar of the *envelope structure* file (not a filler model) can hold a top-level `envelopes:` map that attaches arbitrary metadata to individual envelope cells, keyed by envelope name.
+
+??? note "Envelope structure metadata example"
+    ```yaml
+    envelopes:
+      toroidal_field_coil_18:            │ ← Metadata for this envelope only
+        description: "TF coil 18"        │ ← Shown directly in the report
+        sector: 3                        │ ← Arbitrary field
+        system: "magnets"                │ ← Arbitrary field
+      another_envelope: "A short description"  │ ← A bare string is shorthand for `description`
+    ```
+
+- Any key is allowed; a `description`, `desc`, `title`, `name`, or `label` key (case-insensitive) is treated specially and shown directly wherever the envelope is described in the report.
+- An envelope name listed here that does not match any `$ @env:` marker in the envelope structure file triggers a build warning, since it would otherwise be silently unused — usually a typo or a leftover entry from a removed envelope.
+
+!!! tip "Metadata drives the HTML report"
+    These fields are shown in the envelope tooltips and details of the `build_report.html` file, and scalar fields present on some (but not all, and not too many) envelopes are offered as "group by" options in the report's Explorer and Coverage Map tabs. See [Best Practices](../best_practices.md#use-envelope-metadata-for-report-grouping) for recommendations on using this effectively.

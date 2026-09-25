@@ -18,15 +18,13 @@ example_project/
     ├── filler_models/
     │   ├── filler_model_1.mcnp
     │   ├── filler_model_1.metadata
-    │   └── filler_model_2.mcnp
-    ├── source/
-    │   └── volumetric_source.mcnp
-    ├── materials/
-    │   └── materials.mcnp
-    ├── transformations/
-    │   └── my_transform.mcnp
-    └── tallies/
-      └── fine_mesh.mcnp
+    │   ├── filler_model_2.mcnp
+    │   └── filler_model_2.metadata
+    └── data_cards/
+        ├── volumetric_source.source
+        ├── materials.mat
+        ├── my_transform.transform
+        └── fine_mesh.tally
 ```
 
 ### Configuration
@@ -63,6 +61,5 @@ Gitronics can also be driven from Python, which is useful when integrating with 
 ```python
 import gitronics
 
-# Build a model — equivalent to running the CLI
-gitronics.run(["gitronics", "build", "configurations/baseline.yaml", "-o", "output/"])
+gitronics.build_model("configurations/baseline.yaml", "output/")
 ```
